@@ -79,6 +79,7 @@
   }
   const imageUrl = photo => assetUrl('image', photo);
   const previewUrl = photo => assetUrl('preview', photo);
+  const thumbUrl = photo => assetUrl('thumb', photo);
 
   function toast(message, error=false) {
     els.toast.textContent = message;
@@ -314,7 +315,7 @@
     if(photo.id) card.dataset.photoId=photo.id; card.dataset.scope=scope||''; card.dataset.version=String(photo.version||1);
     if(draggable) card.draggable=true;
     const frame=document.createElement('div');frame.className='photo-thumb';
-    const img=document.createElement('img');img.alt=photo.name||'';img.draggable=false;lazyImage(img,previewUrl(photo));frame.appendChild(img);
+    const img=document.createElement('img');img.alt=photo.name||'';img.draggable=false;img.loading='lazy';img.decoding='async';lazyImage(img,thumbUrl(photo));frame.appendChild(img);
     const badges=document.createElement('div');badges.className='photo-badges';badges.innerHTML=buildBadges(photo);
     const name=document.createElement('div');name.className='photo-name';name.textContent=photo.name||'';
     card.append(frame,badges,name);
@@ -464,7 +465,7 @@
   function startPhotoDrag(e,photo,index,card){
     if(!state.mode2.selected.has(photo.id)){state.mode2.selected.clear();state.mode2.selected.add(photo.id);state.mode2.lastIndex=index;syncSelectionUI('mode2');}
     e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',[...state.mode2.selected].join(','));
-    dragGhost=document.createElement('div');dragGhost.className='drag-ghost';dragGhost.innerHTML=`<img src="${previewUrl(photo)}" alt=""><div>${state.mode2.selected.size>1?`${state.mode2.selected.size} фото`:'Фото → ФИО'}</div>`;document.body.appendChild(dragGhost);e.dataTransfer.setDragImage(dragGhost,70,50);card.style.opacity='.65';card.dataset.dragging='1';
+    dragGhost=document.createElement('div');dragGhost.className='drag-ghost';dragGhost.innerHTML=`<img src="${thumbUrl(photo)}" alt=""><div>${state.mode2.selected.size>1?`${state.mode2.selected.size} фото`:'Фото → ФИО'}</div>`;document.body.appendChild(dragGhost);e.dataTransfer.setDragImage(dragGhost,70,50);card.style.opacity='.65';card.dataset.dragging='1';
   }
   function endPhotoDrag(){document.querySelectorAll('[data-dragging="1"]').forEach(x=>{x.style.opacity='';delete x.dataset.dragging;});document.querySelectorAll('.person-row.dragover').forEach(x=>x.classList.remove('dragover'));if(dragGhost)dragGhost.remove();dragGhost=null;}
 

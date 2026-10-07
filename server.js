@@ -8,7 +8,7 @@ const state = require('./lib/state-store');
 const service = require('./lib/photo-service');
 const auth = require('./lib/auth');
 const upload = require('./lib/upload-service');
-const { ensureThumbnail } = require('./lib/thumbnail-cache');
+const { ensureThumbnail, warmThumbnails } = require('./lib/thumbnail-cache');
 const {
   safeExistingPath,
   listHalls,
@@ -168,10 +168,14 @@ function mimeType(filePath) {
 async function streamFile(res, filePath, cache = false) {
   const stat = await fsp.stat(filePath);
   if (!stat.isFile()) throw new Error('Файл не найден');
+  let cacheControl = 'no-store';
+  if (cache === 'immutable') cacheControl = 'private, max-age=31536000, immutable';
+  else if (cache) cacheControl = 'private, max-age=3600';
   res.writeHead(200, securityHeaders({
     'Content-Type':mimeType(filePath),
     'Content-Length':stat.size,
-    'Cache-Control':cache ? 'private, max-age=300' : 'no-store',
+    'Cache-Control':cacheControl,
+    'Last-Modified':stat.mtime.toUTCString(),
   }));
   const stream = fs.createReadStream(filePath);
   stream.on('error', err => { if (!res.headersSent) sendJson(res, 500, { error:err.message }); else res.destroy(err); });
@@ -264,7 +268,9 @@ async function apiRoute(req, res, url, body) {
 
   if (method === 'POST' && route === '/api/sync') {
     const root = await requireRoot();
-    return sendJson(res, 200, { ok:true, ...(await service.syncFilesystem(root)) });
+    const result = await service.syncFilesystem(root);
+    scheduleThumbnailWarm(root, 'manual-sync');
+    return sendJson(res, 200, { ok:true, ...result });
   }
 
   if (method === 'GET' && route === '/api/browser/list') {
@@ -281,15 +287,16 @@ async function apiRoute(req, res, url, body) {
     return sendJson(res, 200, await service.photoMetadata(root, relativePath));
   }
 
-  if (method === 'GET' && (route === '/api/preview' || route === '/api/image')) {
+  if (method === 'GET' && (route === '/api/thumb' || route === '/api/preview' || route === '/api/image')) {
     const root = await requireRoot();
     const photoId = String(url.searchParams.get('id') || '');
     if (photoId) {
       const photo = service.getPhotoById(photoId);
-      if (route === '/api/preview') {
+      if (route === '/api/thumb' || route === '/api/preview') {
         try {
-          const thumb = await ensureThumbnail(root, photo);
-          return streamFile(res, thumb, true);
+          const variant = route === '/api/thumb' ? 'grid' : 'preview';
+          const thumb = await ensureThumbnail(root, photo, variant);
+          return streamFile(res, thumb, 'immutable');
         } catch (err) {
           if (!thumbnailFallbackWarned) {
             console.warn('Thumbnail cache недоступен, временно отдаю оригиналы:', err.message);
@@ -300,13 +307,13 @@ async function apiRoute(req, res, url, body) {
       const absolute = await safeExistingPath(root, photo.current_relative_path);
       const filename = path.basename(absolute);
       if (!isImageFile(filename) || isThumbnail(filename)) throw new Error('Недопустимый файл изображения');
-      return streamFile(res, absolute, route === '/api/preview');
+      return streamFile(res, absolute, route === '/api/thumb' || route === '/api/preview' ? 'immutable' : false);
     }
     const relativePath = String(url.searchParams.get('path') || '');
     const absolute = await safeExistingPath(root, relativePath);
     const filename = path.basename(absolute);
     if (!isImageFile(filename) || isThumbnail(filename)) throw new Error('Недопустимый файл изображения');
-    return streamFile(res, absolute, route === '/api/preview');
+    return streamFile(res, absolute, route === '/api/thumb' || route === '/api/preview');
   }
 
   if (method === 'GET' && route === '/api/mode1/photos') {
@@ -392,10 +399,34 @@ async function apiRoute(req, res, url, body) {
     requireUploadPassword(req, body);
     const root = await requireRoot();
     const result = await service.syncFilesystem(root);
+    scheduleThumbnailWarm(root, 'upload');
     return sendJson(res, 200, { ok:true, ...result });
   }
 
   return sendJson(res, 404, { error:'API route not found' });
+}
+
+let thumbnailWarmJob = null;
+function scheduleThumbnailWarm(root, reason = 'sync') {
+  if (!root || thumbnailWarmJob) return;
+  const photos = service.thumbnailCandidates();
+  if (!photos.length) return;
+  thumbnailWarmJob = (async () => {
+    console.log(`Thumbnail warmup (${reason}): ${photos.length} фото`);
+    let lastLog = 0;
+    const result = await warmThumbnails(root, photos, {
+      variant:'grid',
+      concurrency:2,
+      onProgress:({ done, total }) => {
+        if (done === total || done - lastLog >= 250) {
+          lastLog = done;
+          console.log(`Thumbnail warmup: ${done}/${total}`);
+        }
+      },
+    });
+    if (result.skipped) console.warn('Thumbnail warmup пропущен: sharp недоступен');
+    else console.log(`Thumbnail warmup готов: ${result.generated}/${result.total}, ошибок: ${result.failed}`);
+  })().catch(err => console.warn('Thumbnail warmup error:', err.message)).finally(() => { thumbnailWarmJob = null; });
 }
 
 let thumbnailFallbackWarned = false;
@@ -446,7 +477,10 @@ async function bootstrapRoot() {
     console.log(`Локально: http://localhost:${PORT}/`);
     const root = store.getSelectedRoot();
     console.log(root ? `Проект: ${root}` : 'Проект не настроен.');
-    if (sync) console.log(`Синхронизация: ${sync.photos} фото, ${sync.halls} залов, отсутствуют: ${sync.missing}`);
+    if (sync) {
+      console.log(`Синхронизация: ${sync.photos} фото, ${sync.halls} залов, отсутствуют: ${sync.missing}`);
+      if (root) setTimeout(() => scheduleThumbnailWarm(root, 'startup'), 1500);
+    }
     const urls = networkAddresses(PORT);
     if (urls.length && process.env.NODE_ENV !== 'production') { console.log('\nВ локальной сети:'); urls.forEach(item => console.log(`  ${item}`)); }
     console.log('==============================================\n');
