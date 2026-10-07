@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photo Sorter</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand">PHOTO SORTER</div>
+        <div class="sub" id="projectLabel">Загрузка…</div>
+      </div>
+      <div class="header-actions" id="workspaceActions">
+        <button class="ghost" id="syncBtn">↻ Синхронизировать</button>
+        <button class="ghost" id="undoBtn">↶ Отменить</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="setupScreen" class="screen hidden">
+        <div class="panel setup-panel">
+          <h1>Первичная настройка</h1>
+          <p>Укажите один постоянный корень проекта. После настройки приложение будет открываться сразу в файловом браузере.</p>
+          <label for="setupPath">Корень проекта</label>
+          <div class="setup-row">
+            <input id="setupPath" placeholder="C:\Фото\ФОТО РОЗ" autocomplete="off" />
+            <button class="primary" id="setupBtn">Использовать эту папку</button>
+          </div>
+          <p class="muted">Корень также можно задать переменной окружения <code>PHOTO_SORTER_ROOT</code>.</p>
+        </div>
+      </section>
+
+      <section id="workspace" class="screen hidden">
+        <nav class="tabs" aria-label="Режимы Photo Sorter">
+          <button class="tab active" data-tab="viewer">Файлы</button>
+          <button class="tab" data-tab="mode1">Люди / оборудование</button>
+          <button class="tab" data-tab="mode2">Люди / ФИО</button>
+        </nav>
+
+        <section id="viewer" class="tab-content active">
+          <div class="toolbar viewer-toolbar">
+            <nav id="viewerBreadcrumb" class="breadcrumb" aria-label="Путь"></nav>
+            <div class="toolbar-spacer"></div>
+            <span id="viewerCount" class="counter"></span>
+            <button id="viewerReloadBtn">Обновить</button>
+          </div>
+
+          <div class="browser-layout">
+            <div class="browser-main">
+              <div id="viewerFolders" class="folder-grid"></div>
+              <div id="viewerEmpty" class="empty hidden">В этой папке нет файлов.</div>
+              <div id="viewerGrid" class="photo-grid"></div>
+            </div>
+            <aside class="preview-panel" id="previewPanel">
+              <div id="previewEmpty" class="preview-empty">Выберите фотографию</div>
+              <div id="previewContent" class="hidden">
+                <button class="preview-image-button" id="previewImageButton" title="Открыть на весь экран">
+                  <img id="previewImage" alt="Preview" />
+                </button>
+                <h3 id="previewFileName"></h3>
+                <div id="previewMeta" class="metadata-list"></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="mode1" class="tab-content">
+          <div class="toolbar sticky-actions">
+            <div>
+              <strong>Люди / оборудование</strong>
+              <div class="muted">Выберите одно или несколько фото. 1 — Люди, 2 — Оборудование, 0 — RAW.</div>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <span id="mode1Selected" class="counter">Выбрано: 0</span>
+            <button id="mode1PeopleBtn" class="people-action" disabled>1 — Люди</button>
+            <button id="mode1EquipmentBtn" class="equipment-action" disabled>2 — Оборудование</button>
+            <button id="mode1RawBtn" disabled>0 — RAW</button>
+            <button id="mode1ReloadBtn">Обновить</button>
+          </div>
+          <div id="mode1Empty" class="empty hidden">Фотографии не найдены.</div>
+          <div id="mode1Groups"></div>
+        </section>
+
+        <section id="mode2" class="tab-content">
+          <div class="toolbar sticky-actions">
+            <div>
+              <label for="mode2Hall">Зал</label>
+              <select id="mode2Hall"></select>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <span id="mode2Selected" class="counter">Выбрано: 0</span>
+            <button id="mode2ResetBtn" disabled>Вернуть в RAW</button>
+            <button id="mode2ReloadBtn">Обновить</button>
+          </div>
+
+          <div class="people-layout">
+            <aside class="people-panel">
+              <h2>Люди / ФИО</h2>
+              <p class="muted">Перетаскивайте саму фотографию на ФИО. Если выбрано несколько фото — перенесутся все выбранные.</p>
+              <input id="personAddInput" class="full-input" placeholder="Добавить ФИО и нажать Enter" autocomplete="off" />
+              <div id="peopleList" class="people-list"></div>
+            </aside>
+            <div class="people-photos">
+              <div id="mode2Empty" class="empty hidden">В этом зале пока нет фотографий в «Люди».</div>
+              <div id="mode2Grid" class="photo-grid"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div id="contextMenu" class="context-menu hidden" role="menu">
+      <button id="contextResetBtn">Отменить сортировку → RAW</button>
+    </div>
+
+    <div id="imageModal" class="image-modal hidden" aria-hidden="true">
+      <button class="modal-close" id="modalCloseBtn" title="Закрыть">×</button>
+      <div class="modal-inner">
+        <img id="modalImage" alt="Просмотр фото" />
+        <div id="modalFileName" class="modal-file-name"></div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

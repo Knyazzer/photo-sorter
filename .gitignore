@@ -1,0 +1,8 @@
+node_modules/
+data/config.json
+data/state.json
+data/state.legacy.json
+data/photo-sorter.sqlite
+data/photo-sorter.sqlite-*
+*.log
+.DS_Store
