@@ -1,5 +1,12 @@
 # Changelog
 
+# Photo Sorter 2.3
+
+- Убран логин: для входа нужен только общий пароль.
+- Локальная cookie больше не помечается Secure при обычном HTTP localhost.
+- В production Secure-cookie сохраняется по умолчанию; значение можно переопределить PHOTO_SORTER_COOKIE_SECURE.
+- Отдельный пароль загрузки сохранён.
+
 ## 2.2.0 — Docker/VDS + authentication + resumable upload
 
 - добавлен общий login/password для Photo Sorter;

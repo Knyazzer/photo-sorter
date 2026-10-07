@@ -1,4 +1,4 @@
-# Photo Sorter 2.2 — Docker + Nginx Proxy Manager
+# Photo Sorter 2.3 — Docker + Nginx Proxy Manager
 
 Целевая схема для `https://photo-sorter.knzteam.ru`:
 
@@ -58,7 +58,6 @@ nano .env
 Обязательно поменяйте:
 
 ```dotenv
-PHOTO_SORTER_USERNAME=team
 PHOTO_SORTER_PASSWORD=ДЛИННЫЙ_ОБЩИЙ_ПАРОЛЬ
 PHOTO_SORTER_UPLOAD_PASSWORD=ДРУГОЙ_ПАРОЛЬ_ТОЛЬКО_ДЛЯ_ЗАГРУЗКИ
 PHOTO_SORTER_SESSION_SECRET=СЛУЧАЙНАЯ_СТРОКА_МИНИМУМ_32_СИМВОЛА
@@ -142,14 +141,13 @@ Photo Sorter отправляет фотографии chunk'ами максим
 https://photo-sorter.knzteam.ru
 ```
 
-Введите общий логин и пароль из:
+Введите общий пароль из:
 
 ```text
-PHOTO_SORTER_USERNAME
 PHOTO_SORTER_PASSWORD
 ```
 
-Несколько сотрудников могут использовать один общий аккаунт. Каждый браузер получает отдельный `session_id`, поэтому присутствие, Undo и контроль конфликтов остаются независимыми.
+Несколько сотрудников могут использовать один общий пароль без логина. Каждый браузер получает отдельный `session_id`, поэтому присутствие, Undo и контроль конфликтов остаются независимыми.
 
 ## 9. Загрузка фотографий через интерфейс
 

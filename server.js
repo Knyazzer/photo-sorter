@@ -197,16 +197,16 @@ function parseIds(body) {
 async function authRoute(req, res, route, body) {
   if (route === '/api/auth/status' && req.method === 'GET') {
     const session = auth.sessionFromRequest(req);
-    return sendJson(res, 200, { authenticated:Boolean(session), username:session?.username || null, expiresAt:session?.expiresAt || null });
+    return sendJson(res, 200, { authenticated:Boolean(session), expiresAt:session?.expiresAt || null });
   }
   if (route === '/api/auth/login' && req.method === 'POST') {
     if (!loginAllowed(req)) return sendJson(res, 429, { error:'Слишком много попыток входа. Повторите через минуту.' });
-    if (!auth.credentialsValid(body.username, body.password)) {
+    if (!auth.passwordValid(body.password)) {
       noteLoginFailure(req);
-      return sendJson(res, 401, { error:'Неверный логин или пароль' });
+      return sendJson(res, 401, { error:'Неверный пароль' });
     }
     clearLoginFailures(req);
-    return sendJson(res, 200, { ok:true, username:auth.USERNAME }, { 'Set-Cookie':auth.issueSessionCookie(auth.USERNAME) });
+    return sendJson(res, 200, { ok:true }, { 'Set-Cookie':auth.issueSessionCookie() });
   }
   if (route === '/api/auth/logout' && req.method === 'POST') {
     return sendJson(res, 200, { ok:true }, { 'Set-Cookie':auth.clearSessionCookie() });

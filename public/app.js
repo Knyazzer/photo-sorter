@@ -7,7 +7,7 @@
 
   const $ = id => document.getElementById(id);
   const els = {
-    loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginUsername:$('loginUsername'), loginPassword:$('loginPassword'), loginBtn:$('loginBtn'), loginError:$('loginError'),
+    loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginPassword:$('loginPassword'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
     setupPath:$('setupPath'), setupBtn:$('setupBtn'), syncBtn:$('syncBtn'), undoBtn:$('undoBtn'), uploadBtn:$('uploadBtn'), logoutBtn:$('logoutBtn'),
     viewerBreadcrumb:$('viewerBreadcrumb'), viewerReloadBtn:$('viewerReloadBtn'), viewerCount:$('viewerCount'),
@@ -42,7 +42,7 @@
       els.workspace.classList.add('hidden');
       els.workspaceActions.classList.add('hidden');
       els.projectLabel.textContent = 'Требуется вход';
-      setTimeout(() => els.loginUsername.focus(), 0);
+      setTimeout(() => els.loginPassword.focus(), 0);
     }
   }
 
@@ -576,7 +576,7 @@
         method:'POST',
         credentials:'same-origin',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ username:els.loginUsername.value.trim(), password:els.loginPassword.value }),
+        body:JSON.stringify({ password:els.loginPassword.value }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка входа');
