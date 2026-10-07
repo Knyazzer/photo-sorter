@@ -67,6 +67,13 @@
           <div class="toolbar viewer-toolbar">
             <nav id="viewerBreadcrumb" class="breadcrumb" aria-label="Путь"></nav>
             <div class="toolbar-spacer"></div>
+            <input id="viewerSearch" class="toolbar-search" type="search" placeholder="Поиск по названию" autocomplete="off" />
+            <select id="viewerView" class="view-select" aria-label="Вид фотографий">
+              <option value="grid">Сетка</option>
+              <option value="large">Крупная сетка</option>
+              <option value="table">Таблица</option>
+            </select>
+            <button id="viewerAddHallBtn" class="ghost hidden" type="button">＋ Новая папка / зал</button>
             <span id="viewerCount" class="counter"></span>
           </div>
 
@@ -95,6 +102,12 @@
               <strong>Люди / оборудование</strong>
               <div class="muted">Выберите одно или несколько фото. 1 — Люди, 2 — Оборудование, 0 — RAW.</div>
             </div>
+            <input id="mode1Search" class="toolbar-search" type="search" placeholder="Поиск по названию" autocomplete="off" />
+            <select id="mode1View" class="view-select" aria-label="Вид фотографий">
+              <option value="grid">Сетка</option>
+              <option value="large">Крупная сетка</option>
+              <option value="table">Таблица</option>
+            </select>
             <div class="toolbar-spacer"></div>
             <span id="mode1Selected" class="counter">Выбрано: 0</span>
             <button id="mode1PeopleBtn" class="people-action" disabled>1 — Люди</button>
@@ -118,6 +131,12 @@
               <label for="mode2Hall">Зал</label>
               <select id="mode2Hall"></select>
             </div>
+            <input id="mode2Search" class="toolbar-search" type="search" placeholder="Поиск по названию" autocomplete="off" />
+            <select id="mode2View" class="view-select" aria-label="Вид фотографий">
+              <option value="grid">Сетка</option>
+              <option value="large">Крупная сетка</option>
+              <option value="table">Таблица</option>
+            </select>
             <div class="toolbar-spacer"></div>
             <span id="mode2Selected" class="counter">Выбрано: 0</span>
             <button id="mode2ResetBtn" disabled>Вернуть в RAW</button>
@@ -141,6 +160,11 @@
 
     <div id="contextMenu" class="context-menu hidden" role="menu">
       <button id="contextResetBtn">Отменить сортировку → RAW</button>
+    </div>
+
+    <div id="viewerContextMenu" class="context-menu viewer-context-menu hidden" role="menu">
+      <div id="viewerContextTitle" class="context-menu-title">Переместить в зал</div>
+      <div id="viewerMoveTargets"></div>
     </div>
 
     <div id="instructionModal" class="dialog-backdrop hidden" aria-hidden="true">

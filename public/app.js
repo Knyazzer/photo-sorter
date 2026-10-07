@@ -10,12 +10,12 @@
     loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginName:$('loginName'), loginPin:$('loginPin'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
     setupPath:$('setupPath'), setupBtn:$('setupBtn'), logoutBtn:$('logoutBtn'),
-    viewerBreadcrumb:$('viewerBreadcrumb'), viewerCount:$('viewerCount'),
+    viewerBreadcrumb:$('viewerBreadcrumb'), viewerCount:$('viewerCount'), viewerSearch:$('viewerSearch'), viewerView:$('viewerView'), viewerAddHallBtn:$('viewerAddHallBtn'),
     viewerFolders:$('viewerFolders'), viewerGrid:$('viewerGrid'), viewerEmpty:$('viewerEmpty'),
     previewEmpty:$('previewEmpty'), previewContent:$('previewContent'), previewImageButton:$('previewImageButton'), previewImage:$('previewImage'), previewFileName:$('previewFileName'), previewMeta:$('previewMeta'),
-    mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
-    mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
-    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), instructionBtn:$('instructionBtn'), instructionModal:$('instructionModal'), instructionCloseBtn:$('instructionCloseBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
+    mode1Selected:$('mode1Selected'), mode1Search:$('mode1Search'), mode1View:$('mode1View'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
+    mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2Search:$('mode2Search'), mode2View:$('mode2View'), mode2ResetBtn:$('mode2ResetBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
+    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), viewerContextMenu:$('viewerContextMenu'), viewerContextTitle:$('viewerContextTitle'), viewerMoveTargets:$('viewerMoveTargets'), instructionBtn:$('instructionBtn'), instructionModal:$('instructionModal'), instructionCloseBtn:$('instructionCloseBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
     toast:$('toast'),
   };
 
@@ -25,9 +25,9 @@
 
   const state = {
     root:null, halls:[],
-    viewer:{ path:'', loaded:false, selected:null, previewRequest:0 },
-    mode1:{ photos:[], selected:new Set(), lastIndex:null, loaded:false, filters:{people:true,equipment:true,raw:true} },
-    mode2:{ hall:'', people:[], photos:[], selected:new Set(), lastIndex:null, loaded:false },
+    viewer:{ path:'', loaded:false, selected:null, photos:[], selectedIds:new Set(), lastIndex:null, previewRequest:0, search:'', view:localStorage.getItem('photoSorterViewViewer') || 'grid' },
+    mode1:{ photos:[], selected:new Set(), lastIndex:null, loaded:false, filters:{people:true,equipment:true,raw:true}, search:'', view:localStorage.getItem('photoSorterViewMode1') || 'grid' },
+    mode2:{ hall:'', people:[], photos:[], selected:new Set(), lastIndex:null, loaded:false, search:'', view:localStorage.getItem('photoSorterViewMode2') || 'grid' },
     contextPhotoId:null,
     sessionStream:null,
   };
@@ -107,6 +107,23 @@
   }
 
   const escapeHtml = value => String(value).replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+
+  const normalizeQuery = value => String(value || '').trim().toLocaleLowerCase('ru');
+  function photoMatchesQuery(photo, query) {
+    const q=normalizeQuery(query); if(!q)return true;
+    return [photo?.name,photo?.originalFilename,photo?.personName,photo?.hall,photo?.relativePath]
+      .filter(Boolean).some(value=>String(value).toLocaleLowerCase('ru').includes(q));
+  }
+  function normalizeView(value) { return ['grid','large','table'].includes(value) ? value : 'grid'; }
+  function applyGridView(grid, value) {
+    if(!grid)return;
+    const view=normalizeView(value);grid.classList.toggle('view-large',view==='large');grid.classList.toggle('view-table',view==='table');
+  }
+  function applyViewMode(scope) {
+    if(scope==='viewer')applyGridView(els.viewerGrid,state.viewer.view);
+    if(scope==='mode1')document.querySelectorAll('#mode1Groups .photo-grid').forEach(grid=>applyGridView(grid,state.mode1.view));
+    if(scope==='mode2')applyGridView(els.mode2Grid,state.mode2.view);
+  }
 
   const lazyObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
     for (const entry of entries) {
@@ -236,36 +253,75 @@
     parts.forEach((part, i)=>add(part, parts.slice(0,i+1).join('/'), i===parts.length-1));
   }
 
+  function viewerVisiblePhotos() { return state.viewer.photos.filter(photo=>photoMatchesQuery(photo,state.viewer.search)); }
+
+  function syncViewerSelectionUI() {
+    document.querySelectorAll('#viewerGrid .photo-card').forEach(card=>card.classList.toggle('selected',state.viewer.selectedIds.has(card.dataset.photoId)));
+  }
+
+  function applyViewerSearch() {
+    const visibleIds=new Set(viewerVisiblePhotos().map(photo=>photo.id || photo.relativePath));
+    let visible=0;
+    document.querySelectorAll('#viewerGrid .photo-card').forEach(card=>{
+      const key=card.dataset.photoId || card.dataset.relativePath;
+      const show=visibleIds.has(key);card.classList.toggle('search-hidden',!show);if(show)visible++;
+    });
+    for(const id of [...state.viewer.selectedIds])if(!visibleIds.has(id))state.viewer.selectedIds.delete(id);
+    state.viewer.lastIndex=null;syncViewerSelectionUI();
+    const folderCount=els.viewerFolders.children.length;
+    const total=state.viewer.photos.length;
+    els.viewerCount.textContent=state.viewer.search?`${folderCount} папок · ${visible} из ${total} фото`:`${folderCount} папок · ${total} фото`;
+    els.viewerEmpty.classList.toggle('hidden',folderCount + visible > 0);
+  }
+
   async function loadViewer(relativePath = state.viewer.path || '') {
     const data = await api(`/api/browser/list?path=${encodeURIComponent(relativePath || '')}`);
     state.viewer.path = data.path || '';
     state.viewer.loaded = true;
+    state.viewer.selected = null;state.viewer.selectedIds.clear();state.viewer.lastIndex=null;
     pingPresence();
-    state.viewer.selected = null;
     renderBreadcrumb(state.viewer.path);
-    els.viewerCount.textContent = `${data.directories.length} папок · ${data.images.length} фото`;
+    els.viewerAddHallBtn.classList.toggle('hidden',Boolean(state.viewer.path));
     els.viewerFolders.innerHTML = '';
+    const viewerPathParts=String(state.viewer.path||'').split(/[\\/]+/).filter(Boolean);
+    const inPeopleRoot=viewerPathParts.length===2 && viewerPathParts[1].toLocaleLowerCase('ru')==='люди';
     data.directories.forEach(dir => {
       const btn = document.createElement('button'); btn.className='folder-card';
       btn.innerHTML = `<span class="folder-card-main"><span class="folder-icon">📁</span><span class="folder-name">${escapeHtml(dir.name)}</span></span><span class="folder-photo-count">${Number(dir.photoCount || 0)} фото</span>`;
       btn.addEventListener('click', ()=>safe(()=>loadViewer(dir.relativePath)));
+      if(inPeopleRoot){
+        btn.title='Правый клик — перенести всё ФИО в другой зал';
+        btn.addEventListener('contextmenu',e=>{e.preventDefault();showViewerPersonFolderContextMenu(e.clientX,e.clientY,viewerPathParts[0],dir.name);});
+      }
       els.viewerFolders.appendChild(btn);
     });
+    state.viewer.photos=(data.images||[]).map(item=>{
+      const photo={...(item.photo || { id:null, status:null, personName:null })};
+      photo.relativePath=item.relativePath;photo.name=item.name;return photo;
+    });
     els.viewerGrid.innerHTML = '';
-    data.images.forEach(item => {
-      const photo = item.photo || { id:null, relativePath:item.relativePath, name:item.name, status:null, personName:null };
-      photo.relativePath = item.relativePath; photo.name = item.name;
+    state.viewer.photos.forEach((photo,index) => {
       const card = createPhotoCard(photo, { scope:'viewer', selectable:false });
-      card.addEventListener('click', ()=>safe(()=>selectViewerPhoto(photo, card)));
+      card.dataset.relativePath=photo.relativePath||'';
+      card.addEventListener('click', e=>safe(()=>handleViewerSelect(photo,index,e)));
+      card.addEventListener('contextmenu',e=>{e.preventDefault();safe(()=>openViewerMoveMenu(e,photo,index));});
       els.viewerGrid.appendChild(card);
     });
-    els.viewerEmpty.classList.toggle('hidden', data.directories.length + data.images.length > 0);
-    clearPreview();
+    applyViewMode('viewer');applyViewerSearch();clearPreview();
   }
 
-  async function selectViewerPhoto(photo, card) {
-    document.querySelectorAll('#viewerGrid .photo-card.selected').forEach(x=>x.classList.remove('selected'));
-    card.classList.add('selected');
+  async function handleViewerSelect(photo,index,event) {
+    const visible=viewerVisiblePhotos();const visibleIndex=visible.findIndex(item=>(item.id||item.relativePath)===(photo.id||photo.relativePath));
+    const key=photo.id || photo.relativePath;
+    if(event.shiftKey && state.viewer.lastIndex!=null && visibleIndex>=0){
+      const a=Math.min(state.viewer.lastIndex,visibleIndex),b=Math.max(state.viewer.lastIndex,visibleIndex);for(let i=a;i<=b;i++){const item=visible[i];if(item?.id)state.viewer.selectedIds.add(item.id);}
+    }else if(event.ctrlKey||event.metaKey){if(photo.id){if(state.viewer.selectedIds.has(photo.id))state.viewer.selectedIds.delete(photo.id);else state.viewer.selectedIds.add(photo.id);}state.viewer.lastIndex=visibleIndex;}
+    else{state.viewer.selectedIds.clear();if(photo.id)state.viewer.selectedIds.add(photo.id);state.viewer.lastIndex=visibleIndex;}
+    syncViewerSelectionUI();
+    await selectViewerPhoto(photo);
+  }
+
+  async function selectViewerPhoto(photo) {
     state.viewer.selected = photo;
     const requestId = ++state.viewer.previewRequest;
     els.previewEmpty.classList.add('hidden');
@@ -357,10 +413,10 @@
   }
 
   function selectionState(scope) { return scope==='mode1'?state.mode1:state.mode2; }
-  function selectionPhotos(scope) { return scope==='mode1'?mode1VisiblePhotos():selectionState(scope).photos; }
+  function selectionPhotos(scope) { return scope==='mode1'?mode1VisiblePhotos():mode2VisiblePhotos(); }
   function handleSelect(scope, photo, index, event) {
     const s=selectionState(scope); if(!photo.id)return;
-    if(scope==='mode1') index=selectionPhotos(scope).findIndex(p=>p.id===photo.id);
+    index=selectionPhotos(scope).findIndex(p=>p.id===photo.id);
     if(event.shiftKey && s.lastIndex!=null && index!=null){
       const photos=selectionPhotos(scope); const a=Math.min(s.lastIndex,index),b=Math.max(s.lastIndex,index); for(let i=a;i<=b;i++)if(photos[i]?.id)s.selected.add(photos[i].id);
     } else if(event.ctrlKey||event.metaKey){ if(s.selected.has(photo.id))s.selected.delete(photo.id);else s.selected.add(photo.id); s.lastIndex=index; }
@@ -417,7 +473,7 @@
   }
 
   function mode1PhotoVisible(photo) {
-    return state.mode1.filters[mode1FilterKey(photo)] !== false;
+    return state.mode1.filters[mode1FilterKey(photo)] !== false && photoMatchesQuery(photo,state.mode1.search);
   }
 
   function mode1VisiblePhotos() {
@@ -467,10 +523,15 @@
     }
     state.mode1.lastIndex=null;
 
+    document.querySelectorAll('#mode1Groups .photo-card').forEach(card=>{
+      const photo=byId.get(card.dataset.photoId);card.classList.toggle('search-hidden',Boolean(photo && !photoMatchesQuery(photo,state.mode1.search)));
+    });
+
+    const visibleByHall=new Map();
+    for(const photo of state.mode1.photos){if(mode1PhotoVisible(photo))visibleByHall.set(photo.hall,(visibleByHall.get(photo.hall)||0)+1);}
     let visibleTotal=0;
     document.querySelectorAll('#mode1Groups .hall-group').forEach(section=>{
-      const hallCounts=counts.halls.get(section.dataset.hall)||{people:0,equipment:0,raw:0};
-      const visible=(state.mode1.filters.people!==false?hallCounts.people:0)+(state.mode1.filters.equipment!==false?hallCounts.equipment:0)+(state.mode1.filters.raw!==false?hallCounts.raw:0);
+      const visible=visibleByHall.get(section.dataset.hall)||0;
       visibleTotal+=visible;
       section.classList.toggle('hidden',visible===0);
       const title=section.querySelector('.hall-title');
@@ -504,7 +565,7 @@
       const grid=document.createElement('div');grid.className='photo-grid';items.forEach(({p,i})=>grid.appendChild(createPhotoCard(p,{scope:'mode1',selectable:true,index:i})));
       section.append(title,grid);els.mode1Groups.appendChild(section);
     }
-    applyMode1Filters();
+    applyViewMode('mode1');applyMode1Filters();
   }
 
   async function applyMode1(target) {
@@ -525,15 +586,22 @@
     const data=await api(`/api/mode2/data?hall=${encodeURIComponent(hall)}`);
     state.mode2.people=data.people||[];state.mode2.photos=data.photos||[];state.mode2.selected.clear();state.mode2.lastIndex=null;state.mode2.loaded=true;renderMode2();
   }
+  function mode2VisiblePhotos(){return state.mode2.photos.filter(photo=>photoMatchesQuery(photo,state.mode2.search));}
+  function applyMode2Search(){
+    const visibleIds=new Set(mode2VisiblePhotos().map(photo=>photo.id));
+    document.querySelectorAll('#mode2Grid .photo-card').forEach(card=>card.classList.toggle('search-hidden',!visibleIds.has(card.dataset.photoId)));
+    for(const id of [...state.mode2.selected])if(!visibleIds.has(id))state.mode2.selected.delete(id);
+    state.mode2.lastIndex=null;syncSelectionUI('mode2');els.mode2Empty.classList.toggle('hidden',visibleIds.size>0);
+  }
   function renderMode2() {
-    renderPeople(); els.mode2Grid.innerHTML='';els.mode2Empty.classList.toggle('hidden',state.mode2.photos.length>0);
+    renderPeople(); els.mode2Grid.innerHTML='';
     state.mode2.photos.forEach((photo,index)=>{
       const card=createPhotoCard(photo,{scope:'mode2',selectable:true,index,draggable:true});
       card.addEventListener('dragstart',e=>startPhotoDrag(e,photo,state.mode2.photos.findIndex(p=>p.id===photo.id),card));
       card.addEventListener('dragend',endPhotoDrag);
       card.addEventListener('contextmenu',e=>{e.preventDefault();if(!state.mode2.selected.has(photo.id)){state.mode2.selected.clear();state.mode2.selected.add(photo.id);state.mode2.lastIndex=index;syncSelectionUI('mode2');}showContextMenu(e.clientX,e.clientY,photo.id);});
       els.mode2Grid.appendChild(card);
-    }); syncSelectionUI('mode2');
+    }); applyViewMode('mode2');applyMode2Search();
   }
 
   function renderPeople() {
@@ -615,6 +683,89 @@
   function showContextMenu(x,y,photoId){state.contextPhotoId=photoId;els.contextMenu.style.left=`${Math.min(x,innerWidth-300)}px`;els.contextMenu.style.top=`${Math.min(y,innerHeight-70)}px`;els.contextMenu.classList.remove('hidden');}
   function hideContextMenu(){els.contextMenu.classList.add('hidden');state.contextPhotoId=null;}
 
+  function viewerExpectedVersions(ids){
+    const map={};for(const id of ids){const photo=state.viewer.photos.find(item=>item.id===id);if(photo)map[id]=Number(photo.version||1);}return map;
+  }
+
+  function hideViewerContextMenu(){els.viewerContextMenu.classList.add('hidden');}
+
+  function renderViewerMoveTargets(sourceHall, onTarget, unavailableMessage = null){
+    const targets=state.halls.filter(hall=>hall.localeCompare(sourceHall,'ru',{sensitivity:'base'})!==0);
+    els.viewerMoveTargets.innerHTML='';
+    if(unavailableMessage){
+      const empty=document.createElement('div');empty.className='context-empty';empty.textContent=unavailableMessage;els.viewerMoveTargets.appendChild(empty);
+    }else if(!targets.length){
+      const empty=document.createElement('div');empty.className='context-empty';empty.textContent='Нет другого зала для переноса.';els.viewerMoveTargets.appendChild(empty);
+    }else{
+      for(const hall of targets){
+        const btn=document.createElement('button');btn.type='button';btn.textContent=hall;
+        btn.addEventListener('click',()=>safe(()=>onTarget(hall)));
+        els.viewerMoveTargets.appendChild(btn);
+      }
+    }
+    return targets.length;
+  }
+
+  function positionViewerContextMenu(x,y,targetCount){
+    els.viewerContextMenu.style.left=`${Math.min(x,innerWidth-340)}px`;
+    els.viewerContextMenu.style.top=`${Math.min(y,innerHeight-Math.min(480,80+targetCount*38))}px`;
+    els.viewerContextMenu.classList.remove('hidden');
+  }
+
+  function showViewerContextMenu(x,y,sourcePhoto){
+    hideContextMenu();
+    const sourceHall=sourcePhoto?.hall || String(state.viewer.path||'').split(/[\\/]+/).filter(Boolean)[0] || '';
+    els.viewerContextTitle.textContent=state.viewer.selectedIds.size>1
+      ? `Переместить ${state.viewer.selectedIds.size} фото в зал`
+      : 'Переместить фото в зал';
+    const unavailable=!sourcePhoto?.id || !['raw','people','person','equipment'].includes(sourcePhoto?.status)
+      ? 'Для этого файла перенос между залами недоступен.'
+      : null;
+    const targetCount=renderViewerMoveTargets(sourceHall,moveViewerSelectionToHall,unavailable);
+    positionViewerContextMenu(x,y,targetCount);
+  }
+
+  function showViewerPersonFolderContextMenu(x,y,sourceHall,personName){
+    hideContextMenu();
+    state.viewer.selectedIds.clear();state.viewer.lastIndex=null;syncViewerSelectionUI();
+    els.viewerContextTitle.textContent=`Переместить «${personName}» в зал`;
+    const targetCount=renderViewerMoveTargets(sourceHall,hall=>moveViewerPersonFolderToHall(sourceHall,personName,hall));
+    positionViewerContextMenu(x,y,targetCount);
+  }
+
+  function openViewerMoveMenu(event,photo,index){
+    if(photo.id&&!state.viewer.selectedIds.has(photo.id)){
+      state.viewer.selectedIds.clear();state.viewer.selectedIds.add(photo.id);state.viewer.lastIndex=viewerVisiblePhotos().findIndex(item=>item.id===photo.id);syncViewerSelectionUI();
+    }
+    state.viewer.selected=photo;safe(()=>selectViewerPhoto(photo));
+    showViewerContextMenu(event.clientX,event.clientY,photo);
+  }
+
+  async function moveViewerSelectionToHall(targetHall){
+    const ids=[...state.viewer.selectedIds];if(!ids.length)throw new Error('Выберите фотографии для переноса');
+    const data=await api('/api/browser/move-to-hall',{method:'POST',body:JSON.stringify({photoIds:ids,targetHall,expectedVersions:viewerExpectedVersions(ids)})});
+    hideViewerContextMenu();
+    state.halls=data.halls||state.halls;fillHallSelect();state.mode1.loaded=false;state.mode2.loaded=false;
+    await loadViewer(state.viewer.path||'');
+    toast(`Перемещено в «${targetHall}»: ${ids.length} фото`);
+  }
+
+  async function moveViewerPersonFolderToHall(sourceHall,personName,targetHall){
+    const data=await api('/api/browser/move-person-folder',{method:'POST',body:JSON.stringify({sourceHall,personName,targetHall})});
+    hideViewerContextMenu();
+    state.halls=data.halls||state.halls;fillHallSelect();state.mode1.loaded=false;state.mode2.loaded=false;
+    await loadViewer(state.viewer.path||'');
+    toast(`«${personName}» → «${targetHall}»: ${Number(data.movedCount||0)} фото`);
+  }
+
+  async function addHall(){
+    if(state.viewer.path)throw new Error('Новый зал можно создать только в корне проекта');
+    const name=prompt('Название новой папки / зала');if(!name?.trim())return;
+    const data=await api('/api/halls',{method:'POST',body:JSON.stringify({name:name.trim()})});
+    state.halls=data.halls||state.halls;fillHallSelect();state.mode1.loaded=false;state.mode2.loaded=false;
+    await loadViewer('');toast(`Создана папка «${data.hall?.name || name.trim()}»`);
+  }
+
   function openModal(photo){els.modalImage.src=imageUrl(photo);els.modalFileName.textContent=photo.name;els.imageModal.classList.remove('hidden');els.imageModal.setAttribute('aria-hidden','false');}
   function closeModal(){els.imageModal.classList.add('hidden');els.imageModal.setAttribute('aria-hidden','true');els.modalImage.removeAttribute('src');}
 
@@ -661,7 +812,7 @@
       }
     }
     state.mode2.people=data.people||[];
-    renderPeople();syncSelectionUI('mode2');els.mode2Empty.classList.toggle('hidden',state.mode2.photos.length>0);
+    renderPeople();applyViewMode('mode2');applyMode2Search();
   }
 
   async function liveRefresh() {
@@ -684,16 +835,23 @@
 
   els.setupBtn.addEventListener('click',()=>safe(setupRoot));els.setupPath.addEventListener('keydown',e=>{if(e.key==='Enter')safe(setupRoot);});
   els.previewImageButton.addEventListener('click',()=>{if(state.viewer.selected)openModal(state.viewer.selected);});
+  els.viewerAddHallBtn.addEventListener('click',()=>safe(addHall));
+  els.viewerSearch.addEventListener('input',()=>{state.viewer.search=els.viewerSearch.value;applyViewerSearch();});
+  els.viewerView.addEventListener('change',()=>{state.viewer.view=normalizeView(els.viewerView.value);localStorage.setItem('photoSorterViewViewer',state.viewer.view);applyViewMode('viewer');});
   els.mode1PeopleBtn.addEventListener('click',()=>safe(()=>applyMode1('people')));els.mode1EquipmentBtn.addEventListener('click',()=>safe(()=>applyMode1('equipment')));els.mode1RawBtn.addEventListener('click',()=>safe(()=>applyMode1('raw')));
+  els.mode1Search.addEventListener('input',()=>{state.mode1.search=els.mode1Search.value;applyMode1Filters();});
+  els.mode1View.addEventListener('change',()=>{state.mode1.view=normalizeView(els.mode1View.value);localStorage.setItem('photoSorterViewMode1',state.mode1.view);applyViewMode('mode1');});
   els.mode1FilterPeople.addEventListener('click',()=>toggleMode1Filter('people'));
   els.mode1FilterEquipment.addEventListener('click',()=>toggleMode1Filter('equipment'));
   els.mode1FilterRaw.addEventListener('click',()=>toggleMode1Filter('raw'));
+  els.mode2Search.addEventListener('input',()=>{state.mode2.search=els.mode2Search.value;applyMode2Search();});
+  els.mode2View.addEventListener('change',()=>{state.mode2.view=normalizeView(els.mode2View.value);localStorage.setItem('photoSorterViewMode2',state.mode2.view);applyViewMode('mode2');});
   els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await pingPresence();}));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
-  els.contextResetBtn.addEventListener('click',()=>safe(async()=>{hideContextMenu();await resetMode2();}));document.addEventListener('click',e=>{if(!els.contextMenu.contains(e.target))hideContextMenu();});
+  els.contextResetBtn.addEventListener('click',()=>safe(async()=>{hideContextMenu();await resetMode2();}));document.addEventListener('click',e=>{if(!els.contextMenu.contains(e.target))hideContextMenu();if(!els.viewerContextMenu.contains(e.target))hideViewerContextMenu();});
   els.instructionBtn.addEventListener('click',openInstruction);els.instructionCloseBtn.addEventListener('click',closeInstruction);els.instructionModal.addEventListener('click',e=>{if(e.target===els.instructionModal)closeInstruction();});
   els.modalCloseBtn.addEventListener('click',closeModal);els.imageModal.addEventListener('click',e=>{if(e.target===els.imageModal)closeModal();});
   document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){if(!els.instructionModal.classList.contains('hidden'))closeInstruction();if(!els.imageModal.classList.contains('hidden'))closeModal();hideContextMenu();return;}
+    if(e.key==='Escape'){if(!els.instructionModal.classList.contains('hidden'))closeInstruction();if(!els.imageModal.classList.contains('hidden'))closeModal();hideContextMenu();hideViewerContextMenu();return;}
     if(e.target.matches('input,textarea,select'))return;
     if(activeTab()==='mode1'){
       if(e.key==='1'){e.preventDefault();safe(()=>applyMode1('people'));}
@@ -743,6 +901,9 @@
     showLogin(false);
     await loadProject();
   }
+
+  els.viewerSearch.value=state.viewer.search;els.mode1Search.value=state.mode1.search;els.mode2Search.value=state.mode2.search;
+  els.viewerView.value=normalizeView(state.viewer.view);els.mode1View.value=normalizeView(state.mode1.view);els.mode2View.value=normalizeView(state.mode2.view);
 
   els.loginName.value = localStorage.getItem('photoSorterLastName') || '';
   loginPinInputs.forEach((input, index) => {

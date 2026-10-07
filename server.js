@@ -376,6 +376,34 @@ async function apiRoute(req, res, url, body) {
     return sendJson(res, 200, await service.browserList(root, relativePath));
   }
 
+  if (method === 'POST' && route === '/api/halls') {
+    const root = await requireRoot();
+    const hall = await service.createHall(root, body.name);
+    return sendJson(res, 201, { hall, halls:await listHalls(root) });
+  }
+
+  if (method === 'POST' && route === '/api/browser/move-to-hall') {
+    const root = await requireRoot();
+    const targetHall = validateHallName(String(body.targetHall || ''));
+    const photos = await service.movePhotosToHall(root, parseIds(body), targetHall, {
+      userId:sessionId,
+      expectedVersions:body.expectedVersions || null,
+    });
+    return sendJson(res, 200, { ok:true, photos, halls:await listHalls(root) });
+  }
+
+  if (method === 'POST' && route === '/api/browser/move-person-folder') {
+    const root = await requireRoot();
+    const result = await service.movePersonFolderToHall(
+      root,
+      body.sourceHall,
+      body.personName,
+      body.targetHall,
+      { userId:sessionId },
+    );
+    return sendJson(res, 200, { ok:true, ...result, halls:await listHalls(root) });
+  }
+
   if (method === 'GET' && route === '/api/photo/metadata') {
     const root = await requireRoot();
     const photoId = String(url.searchParams.get('id') || '');
