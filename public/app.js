@@ -287,8 +287,12 @@
     const inPeopleRoot=viewerPathParts.length===2 && viewerPathParts[1].toLocaleLowerCase('ru')==='люди';
     data.directories.forEach(dir => {
       const btn = document.createElement('button'); btn.className='folder-card';
-      btn.innerHTML = `<span class="folder-card-main"><span class="folder-icon">📁</span><span class="folder-name">${escapeHtml(dir.name)}</span></span><span class="folder-photo-count">${Number(dir.photoCount || 0)} фото</span>`;
+      btn.innerHTML = `<span class="folder-card-main"><span class="folder-icon">📁</span><span class="folder-name">${escapeHtml(dir.name)}</span>${dir.custom?'<span class="folder-custom-badge">создан вручную</span>':''}</span><span class="folder-photo-count">${Number(dir.photoCount || 0)} фото</span>`;
       btn.addEventListener('click', ()=>safe(()=>loadViewer(dir.relativePath)));
+      if(viewerPathParts.length===0 && dir.custom){
+        btn.title='Правый клик — переименовать или удалить зал';
+        btn.addEventListener('contextmenu',e=>{e.preventDefault();showCustomHallContextMenu(e.clientX,e.clientY,dir.name);});
+      }
       if(inPeopleRoot){
         btn.title='Правый клик — перенести всё ФИО в другой зал';
         btn.addEventListener('contextmenu',e=>{e.preventDefault();showViewerPersonFolderContextMenu(e.clientX,e.clientY,viewerPathParts[0],dir.name);});
@@ -689,7 +693,7 @@
 
   function hideViewerContextMenu(){els.viewerContextMenu.classList.add('hidden');}
 
-  function renderViewerMoveTargets(sourceHall, onTarget, unavailableMessage = null){
+  function renderViewerMoveTargets(sourceHall, onTarget, unavailableMessage = null, labelForHall = hall => hall){
     const targets=state.halls.filter(hall=>hall.localeCompare(sourceHall,'ru',{sensitivity:'base'})!==0);
     els.viewerMoveTargets.innerHTML='';
     if(unavailableMessage){
@@ -698,7 +702,7 @@
       const empty=document.createElement('div');empty.className='context-empty';empty.textContent='Нет другого зала для переноса.';els.viewerMoveTargets.appendChild(empty);
     }else{
       for(const hall of targets){
-        const btn=document.createElement('button');btn.type='button';btn.textContent=hall;
+        const btn=document.createElement('button');btn.type='button';btn.textContent=labelForHall(hall);
         btn.addEventListener('click',()=>safe(()=>onTarget(hall)));
         els.viewerMoveTargets.appendChild(btn);
       }
@@ -721,7 +725,14 @@
     const unavailable=!sourcePhoto?.id || !['raw','people','person','equipment'].includes(sourcePhoto?.status)
       ? 'Для этого файла перенос между залами недоступен.'
       : null;
-    const targetCount=renderViewerMoveTargets(sourceHall,moveViewerSelectionToHall,unavailable);
+    const destinationLabel=hall=>{
+      if(sourcePhoto?.status==='raw')return `${hall} / RAW`;
+      if(sourcePhoto?.status==='equipment')return `${hall} / Оборудование`;
+      if(sourcePhoto?.status==='people')return `${hall} / Люди`;
+      if(sourcePhoto?.status==='person')return `${hall} / Люди / ${sourcePhoto.personName || 'ФИО'}`;
+      return hall;
+    };
+    const targetCount=renderViewerMoveTargets(sourceHall,moveViewerSelectionToHall,unavailable,destinationLabel);
     positionViewerContextMenu(x,y,targetCount);
   }
 
@@ -729,8 +740,28 @@
     hideContextMenu();
     state.viewer.selectedIds.clear();state.viewer.lastIndex=null;syncViewerSelectionUI();
     els.viewerContextTitle.textContent=`Переместить «${personName}» в зал`;
-    const targetCount=renderViewerMoveTargets(sourceHall,hall=>moveViewerPersonFolderToHall(sourceHall,personName,hall));
+    const targetCount=renderViewerMoveTargets(sourceHall,hall=>moveViewerPersonFolderToHall(sourceHall,personName,hall),null,hall=>`${hall} / Люди / ${personName}`);
     positionViewerContextMenu(x,y,targetCount);
+  }
+
+  function showCustomHallContextMenu(x,y,hallName){
+    hideContextMenu();state.viewer.selectedIds.clear();syncViewerSelectionUI();
+    els.viewerContextTitle.textContent=`Зал «${hallName}»`;els.viewerMoveTargets.innerHTML='';
+    const rename=document.createElement('button');rename.type='button';rename.textContent='Переименовать';rename.addEventListener('click',()=>safe(()=>renameCustomHall(hallName)));
+    const remove=document.createElement('button');remove.type='button';remove.className='danger-menu-item';remove.textContent='Удалить зал';remove.addEventListener('click',()=>safe(()=>deleteCustomHall(hallName)));
+    els.viewerMoveTargets.append(rename,remove);positionViewerContextMenu(x,y,2);
+  }
+
+  async function renameCustomHall(hallName){
+    const name=prompt('Новое название зала',hallName);if(!name?.trim()||name.trim()===hallName){hideViewerContextMenu();return;}
+    const data=await api(`/api/halls/${encodeURIComponent(hallName)}`,{method:'PATCH',body:JSON.stringify({name:name.trim()})});
+    hideViewerContextMenu();state.halls=data.halls||state.halls;fillHallSelect();state.mode1.loaded=false;state.mode2.loaded=false;await loadViewer('');toast(`Зал «${hallName}» переименован в «${data.hall?.name || name.trim()}»`);
+  }
+
+  async function deleteCustomHall(hallName){
+    if(!confirm(`Удалить созданный зал «${hallName}»?\n\nФотографии будут возвращены в предыдущие залы. Если для какой-либо фотографии предыдущий зал неизвестен, удаление будет отменено.`))return;
+    const data=await api(`/api/halls/${encodeURIComponent(hallName)}`,{method:'DELETE',body:'{}'});
+    hideViewerContextMenu();state.halls=data.halls||state.halls;fillHallSelect();state.mode1.loaded=false;state.mode2.loaded=false;await loadViewer('');toast(`Зал «${hallName}» удалён. Возвращено фото: ${Number(data.restored||0)}`);
   }
 
   function openViewerMoveMenu(event,photo,index){

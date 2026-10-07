@@ -382,6 +382,20 @@ async function apiRoute(req, res, url, body) {
     return sendJson(res, 201, { hall, halls:await listHalls(root) });
   }
 
+  const hallMatch = route.match(/^\/api\/halls\/(.+)$/);
+  if (hallMatch && method === 'PATCH') {
+    const root = await requireRoot();
+    const oldName = decodeURIComponent(hallMatch[1]);
+    const hall = await service.renameHall(root, oldName, body.name);
+    return sendJson(res, 200, { hall, halls:await listHalls(root) });
+  }
+  if (hallMatch && method === 'DELETE') {
+    const root = await requireRoot();
+    const hallName = decodeURIComponent(hallMatch[1]);
+    const result = await service.deleteHall(root, hallName, { userId:sessionId });
+    return sendJson(res, 200, { ...result, halls:await listHalls(root) });
+  }
+
   if (method === 'POST' && route === '/api/browser/move-to-hall') {
     const root = await requireRoot();
     const targetHall = validateHallName(String(body.targetHall || ''));

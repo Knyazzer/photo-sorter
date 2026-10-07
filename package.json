@@ -1,6 +1,6 @@
 {
   "name": "photo-sorter-local",
-  "version": "2.7.0",
+  "version": "2.10.0",
   "private": true,
   "description": "Photo Sorter: быстрые thumbnails, smart-фильтры, realtime-сессии, отдельная загрузка и VDS/Docker deployment",
   "main": "server.js",
