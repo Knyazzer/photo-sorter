@@ -1,13 +1,13 @@
 {
   "name": "photo-sorter-local",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "private": true,
-  "description": "Photo Sorter: быстрые thumbnails, файловый браузер, парольный доступ, многосессионная сортировка и VDS/Docker deployment",
+  "description": "Photo Sorter: быстрые thumbnails, smart-фильтры, realtime-сессии, отдельная загрузка и VDS/Docker deployment",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check lib/auth.js && node --check lib/upload-service.js && node --check lib/files.js && node --check lib/photo-name.js && node --check lib/photo-metadata.js && node --check lib/photo-store.js && node --check lib/photo-service.js && node --check lib/thumbnail-cache.js && node --check public/app.js"
+    "check": "node --check server.js && node --check lib/auth.js && node --check lib/upload-service.js && node --check lib/files.js && node --check lib/photo-name.js && node --check lib/photo-metadata.js && node --check lib/photo-store.js && node --check lib/photo-service.js && node --check lib/thumbnail-cache.js && node --check public/app.js && node --check public/upload.js"
   },
   "engines": {
     "node": ">=22.5"

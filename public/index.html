@@ -15,8 +15,6 @@
       </div>
       <div class="header-actions hidden" id="workspaceActions">
         <div id="activeSessions" class="active-sessions" title="Активные сессии"></div>
-        <button class="ghost" id="uploadBtn">↑ Загрузить фото</button>
-        <button class="ghost" id="undoBtn">↶ Отменить</button>
         <button class="ghost" id="logoutBtn">Выйти</button>
       </div>
     </header>
@@ -151,29 +149,6 @@
       <div class="modal-inner">
         <img id="modalImage" alt="Просмотр фото" />
         <div id="modalFileName" class="modal-file-name"></div>
-      </div>
-    </div>
-
-    <div id="uploadModal" class="dialog-backdrop hidden" aria-hidden="true">
-      <div class="dialog-card upload-dialog">
-        <div class="dialog-head">
-          <div>
-            <h2>Загрузка фотографий</h2>
-            <p class="muted">Выберите корневую папку проекта, внутри которой находятся папки залов. Файлы, лежащие прямо в папке зала, автоматически попадут в <code>raw</code>.</p>
-          </div>
-          <button class="dialog-close" id="uploadCloseBtn" title="Закрыть">×</button>
-        </div>
-        <label for="uploadPasswordInput">Отдельный пароль загрузки</label>
-        <input id="uploadPasswordInput" type="password" autocomplete="off" placeholder="Пароль загрузки" />
-        <label for="uploadFolderInput">Папка проекта</label>
-        <input id="uploadFolderInput" type="file" webkitdirectory directory multiple />
-        <div class="upload-summary" id="uploadSummary">Папка не выбрана</div>
-        <progress id="uploadProgress" max="100" value="0"></progress>
-        <div class="upload-progress-text" id="uploadProgressText"></div>
-        <div class="dialog-actions">
-          <button id="uploadCancelBtn" type="button">Закрыть</button>
-          <button id="uploadStartBtn" class="primary" type="button">Начать загрузку</button>
-        </div>
       </div>
     </div>
 

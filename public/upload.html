@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photo Sorter — загрузка</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand">PHOTO SORTER</div>
+        <div class="sub">Административная загрузка фотографий</div>
+      </div>
+      <div class="header-actions"><a class="button-link ghost" href="/">← В Photo Sorter</a></div>
+    </header>
+    <main>
+      <section id="uploadGate" class="screen">
+        <div class="panel upload-page-card">
+          <h1>Загрузка фотографий</h1>
+          <p class="muted">Введите отдельный пароль загрузки. Общий PIN Photo Sorter здесь не используется.</p>
+          <form id="uploadGateForm" class="login-form">
+            <label for="uploadPassword">Пароль загрузки</label>
+            <input id="uploadPassword" type="password" autocomplete="current-password" placeholder="Пароль загрузки" required />
+            <button id="uploadUnlockBtn" class="primary" type="submit">Продолжить</button>
+            <div id="uploadGateError" class="login-error hidden"></div>
+          </form>
+        </div>
+      </section>
+
+      <section id="uploadWorkspace" class="screen hidden">
+        <div class="panel upload-page-card">
+          <div class="dialog-head">
+            <div>
+              <h1>Выбор папки</h1>
+              <p class="muted">Выберите корневую папку проекта, внутри которой находятся папки залов. Файлы, лежащие прямо в папке зала, автоматически попадут в <code>raw</code>.</p>
+            </div>
+            <button id="uploadLockBtn" type="button" class="ghost">Заблокировать</button>
+          </div>
+          <label for="uploadFolderInput">Папка проекта</label>
+          <input id="uploadFolderInput" type="file" webkitdirectory directory multiple />
+          <div class="upload-summary" id="uploadSummary">Папка не выбрана</div>
+          <progress id="uploadProgress" max="100" value="0"></progress>
+          <div class="upload-progress-text" id="uploadProgressText"></div>
+          <div class="dialog-actions">
+            <button id="uploadStartBtn" class="primary" type="button" disabled>Начать загрузку</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+  <script src="/upload.js"></script>
+</body>
+</html>

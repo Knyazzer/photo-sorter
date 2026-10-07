@@ -24,6 +24,9 @@ const JSON_LIMIT = 2 * 1024 * 1024;
 const LOGIN_WINDOW_MS = 60_000;
 const LOGIN_MAX_ATTEMPTS = 10;
 const loginAttempts = new Map();
+const sessionStreams = new Map();
+const sessionDisconnectTimers = new Map();
+let lastSessionBroadcast = '';
 
 function securityHeaders(extra = {}) {
   return {
@@ -108,9 +111,46 @@ function decodeHeaderValue(value) {
   try { return decodeURIComponent(raw); } catch (_) { return raw; }
 }
 
+function normalizeSessionId(value) {
+  const id = String(value || '').trim();
+  return /^[a-zA-Z0-9._:-]{8,128}$/.test(id) ? id : 'local';
+}
+
 function sessionIdFrom(req) {
-  const value = String(req.headers['x-session-id'] || '').trim();
-  return /^[a-zA-Z0-9._:-]{8,128}$/.test(value) ? value : 'local';
+  return normalizeSessionId(req.headers['x-session-id']);
+}
+
+function sessionPayload() {
+  return store.listActiveSessions(90).map(item => ({ id:item.id, display_name:item.display_name, mode:item.mode, hall:item.hall }));
+}
+
+function broadcastSessions(force = false) {
+  const sessions = sessionPayload();
+  const serialized = JSON.stringify(sessions);
+  if (!force && serialized === lastSessionBroadcast) return;
+  lastSessionBroadcast = serialized;
+  const frame = `event: sessions\ndata: ${serialized}\n\n`;
+  for (const [id, res] of sessionStreams) {
+    try { res.write(frame); } catch (_) { sessionStreams.delete(id); }
+  }
+}
+
+function cancelSessionRemoval(id) {
+  const timer = sessionDisconnectTimers.get(id);
+  if (timer) clearTimeout(timer);
+  sessionDisconnectTimers.delete(id);
+}
+
+function scheduleSessionRemoval(id) {
+  cancelSessionRemoval(id);
+  const timer = setTimeout(() => {
+    sessionDisconnectTimers.delete(id);
+    if (sessionStreams.has(id)) return;
+    store.removeSession(id);
+    broadcastSessions(true);
+  }, 2500);
+  timer.unref?.();
+  sessionDisconnectTimers.set(id, timer);
 }
 
 function touchClientSession(req, displayName) {
@@ -119,6 +159,7 @@ function touchClientSession(req, displayName) {
     const mode = decodeHeaderValue(req.headers['x-client-mode']).slice(0, 32) || null;
     const hall = decodeHeaderValue(req.headers['x-client-hall']).slice(0, 128) || null;
     store.touchSession(sessionId, { displayName, mode, hall });
+    broadcastSessions();
   }
   return sessionId;
 }
@@ -186,6 +227,7 @@ async function serveStatic(url, res) {
   let relative;
   try { relative = decodeURIComponent(url.pathname); } catch (_) { return false; }
   if (relative === '/') relative = '/index.html';
+  if (relative === '/upload' || relative === '/upload/') relative = '/upload.html';
   const target = path.resolve(PUBLIC_DIR, `.${relative}`);
   const rel = path.relative(PUBLIC_DIR, target);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
@@ -227,12 +269,71 @@ async function authRoute(req, res, route, body) {
   return false;
 }
 
+async function adminUploadRoute(req, res, url, body) {
+  const method = req.method || 'GET';
+  const route = url.pathname;
+  if (!route.startsWith('/api/admin/upload/')) return false;
+
+  if (method === 'POST' && route === '/api/admin/upload/verify') {
+    requireUploadPassword(req, body);
+    const root = await requireRoot();
+    return sendJson(res, 200, { ok:true, root:path.basename(root), maxChunkBytes:upload.MAX_CHUNK_BYTES, maxFileBytes:upload.MAX_FILE_BYTES });
+  }
+  if (method === 'GET' && route === '/api/admin/upload/status') {
+    requireUploadPassword(req);
+    const root = await requireRoot();
+    return sendJson(res, 200, await upload.uploadStatus(root, url.searchParams.get('path'), Number(url.searchParams.get('total'))));
+  }
+  if (method === 'PUT' && route === '/api/admin/upload/chunk') {
+    requireUploadPassword(req);
+    const root = await requireRoot();
+    const chunk = await readBody(req, upload.MAX_CHUNK_BYTES);
+    try {
+      const result = await upload.appendChunk(root, url.searchParams.get('path'), Number(url.searchParams.get('total')), Number(url.searchParams.get('offset')), chunk);
+      return sendJson(res, 200, result);
+    } catch (err) {
+      if (err.expectedOffset != null) return sendJson(res, err.statusCode || 409, { error:err.message, expectedOffset:err.expectedOffset });
+      throw err;
+    }
+  }
+  if (method === 'POST' && route === '/api/admin/upload/finish') {
+    requireUploadPassword(req, body);
+    const root = await requireRoot();
+    const result = await service.syncFilesystem(root);
+    scheduleThumbnailWarm(root, 'upload');
+    return sendJson(res, 200, { ok:true, ...result });
+  }
+  return sendJson(res, 404, { error:'Upload API route not found' });
+}
+
 async function apiRoute(req, res, url, body) {
   const method = req.method || 'GET';
   const route = url.pathname;
 
   const authHandled = await authRoute(req, res, route, body || {});
   if (authHandled !== false) return authHandled;
+
+  const uploadHandled = await adminUploadRoute(req, res, url, body || {});
+  if (uploadHandled !== false) return uploadHandled;
+
+  if (method === 'GET' && route === '/api/sessions/stream') {
+    const authSession = requireAuth(req);
+    const sessionId = normalizeSessionId(url.searchParams.get('sessionId'));
+    const mode = String(url.searchParams.get('mode') || 'viewer').slice(0, 32) || 'viewer';
+    const hall = String(url.searchParams.get('hall') || '').slice(0, 128) || null;
+    cancelSessionRemoval(sessionId);
+    const existingSession = store.getSession(sessionId);
+    store.touchSession(sessionId, { displayName:authSession.name, mode:existingSession?.mode || mode, hall:existingSession?.hall ?? hall });
+    res.writeHead(200, securityHeaders({ 'Content-Type':'text/event-stream; charset=utf-8', 'Cache-Control':'no-cache, no-transform', 'Connection':'keep-alive', 'X-Accel-Buffering':'no' }));
+    res.write(': connected\n\n');
+    sessionStreams.set(sessionId, res);
+    broadcastSessions(true);
+    req.on('close', () => {
+      if (sessionStreams.get(sessionId) === res) sessionStreams.delete(sessionId);
+      scheduleSessionRemoval(sessionId);
+    });
+    return;
+  }
 
   const authSession = requireAuth(req);
   const sessionId = touchClientSession(req, authSession.name);
@@ -362,11 +463,6 @@ async function apiRoute(req, res, url, body) {
     return sendJson(res, 200, { ok:true, photos });
   }
 
-  if (method === 'POST' && route === '/api/undo') {
-    const root = await requireRoot();
-    return sendJson(res, 200, await service.undoLast(root, sessionId));
-  }
-
   if (method === 'POST' && route === '/api/admin/upload/verify') {
     requireUploadPassword(req, body);
     return sendJson(res, 200, { ok:true, maxChunkBytes:upload.MAX_CHUNK_BYTES, maxFileBytes:upload.MAX_FILE_BYTES });
@@ -426,6 +522,12 @@ function scheduleThumbnailWarm(root, reason = 'sync') {
 }
 
 let thumbnailFallbackWarned = false;
+
+const sessionHeartbeat = setInterval(() => {
+  for (const res of sessionStreams.values()) { try { res.write(': ping\n\n'); } catch (_) {} }
+  broadcastSessions();
+}, 20000);
+sessionHeartbeat.unref?.();
 
 const server = http.createServer(async (req, res) => {
   try {

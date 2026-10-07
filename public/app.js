@@ -9,14 +9,13 @@
   const els = {
     loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginName:$('loginName'), loginPin:$('loginPin'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
-    setupPath:$('setupPath'), setupBtn:$('setupBtn'), undoBtn:$('undoBtn'), uploadBtn:$('uploadBtn'), logoutBtn:$('logoutBtn'),
+    setupPath:$('setupPath'), setupBtn:$('setupBtn'), logoutBtn:$('logoutBtn'),
     viewerBreadcrumb:$('viewerBreadcrumb'), viewerReloadBtn:$('viewerReloadBtn'), viewerCount:$('viewerCount'),
     viewerFolders:$('viewerFolders'), viewerGrid:$('viewerGrid'), viewerEmpty:$('viewerEmpty'),
     previewEmpty:$('previewEmpty'), previewContent:$('previewContent'), previewImageButton:$('previewImageButton'), previewImage:$('previewImage'), previewFileName:$('previewFileName'), previewMeta:$('previewMeta'),
     mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1ReloadBtn:$('mode1ReloadBtn'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
     mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), mode2ReloadBtn:$('mode2ReloadBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
     contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
-    uploadModal:$('uploadModal'), uploadCloseBtn:$('uploadCloseBtn'), uploadCancelBtn:$('uploadCancelBtn'), uploadPasswordInput:$('uploadPasswordInput'), uploadFolderInput:$('uploadFolderInput'), uploadSummary:$('uploadSummary'), uploadProgress:$('uploadProgress'), uploadProgressText:$('uploadProgressText'), uploadStartBtn:$('uploadStartBtn'),
     toast:$('toast'),
   };
 
@@ -30,6 +29,7 @@
     mode1:{ photos:[], selected:new Set(), lastIndex:null, loaded:false, filters:{people:true,equipment:true,raw:true} },
     mode2:{ hall:'', people:[], photos:[], selected:new Set(), lastIndex:null, loaded:false },
     contextPhotoId:null,
+    sessionStream:null,
   };
 
   const activeTab = () => document.querySelector('.tab.active')?.dataset.tab || 'viewer';
@@ -42,6 +42,7 @@
   function showLogin(show) {
     els.loginScreen.classList.toggle('hidden', !show);
     if (show) {
+      stopSessionStream();
       els.setupScreen.classList.add('hidden');
       els.workspace.classList.add('hidden');
       els.workspaceActions.classList.add('hidden');
@@ -127,11 +128,9 @@
     els.workspaceActions.classList.toggle('hidden', show);
   }
 
-  async function refreshSessions() {
-    const data = await api('/api/sessions');
-    const sessions = data.sessions || [];
+  function renderSessions(sessions = []) {
     els.activeSessions.innerHTML = '';
-    for (const item of sessions.slice(0, 6)) {
+    for (const item of sessions.slice(0, 8)) {
       const pill = document.createElement('div');
       pill.className = `session-pill${item.id === sessionId ? ' current' : ''}`;
       const mode = item.mode === 'mode1' ? 'Люди / оборудование' : item.mode === 'mode2' ? 'Люди / ФИО' : 'Файлы';
@@ -140,6 +139,30 @@
       pill.innerHTML = `<span class="session-dot"></span><span class="session-text">${escapeHtml(detail)}</span>`;
       els.activeSessions.appendChild(pill);
     }
+  }
+
+  async function refreshSessions() {
+    const data = await api('/api/sessions');
+    renderSessions(data.sessions || []);
+  }
+
+  async function pingPresence() {
+    try { await api('/api/session', { method:'POST', body:'{}' }); } catch (_) {}
+  }
+
+  function stopSessionStream() {
+    if (state.sessionStream) { state.sessionStream.close(); state.sessionStream = null; }
+  }
+
+  function startSessionStream() {
+    stopSessionStream();
+    if (els.loginScreen && !els.loginScreen.classList.contains('hidden')) return;
+    const stream = new EventSource(`/api/sessions/stream?sessionId=${encodeURIComponent(sessionId)}&mode=${encodeURIComponent(activeTab())}&hall=${encodeURIComponent(currentHallForPresence())}`);
+    stream.addEventListener('sessions', event => {
+      try { renderSessions(JSON.parse(event.data || '[]')); } catch (err) { console.warn('Session stream parse error', err); }
+    });
+    stream.onerror = () => { /* EventSource reconnects automatically. */ };
+    state.sessionStream = stream;
   }
 
   async function loadProject() {
@@ -158,6 +181,8 @@
     fillHallSelect();
     await loadViewer('');
     await refreshSessions();
+    startSessionStream();
+    await pingPresence();
   }
 
   function fillHallSelect() {
@@ -192,7 +217,7 @@
       if (tab.dataset.tab === 'viewer' && !state.viewer.loaded) await loadViewer(state.viewer.path || '');
       if (tab.dataset.tab === 'mode1' && !state.mode1.loaded) await loadMode1();
       if (tab.dataset.tab === 'mode2' && !state.mode2.loaded) await loadMode2();
-      await refreshSessions();
+      await pingPresence();
     })));
   }
 
@@ -215,6 +240,7 @@
     const data = await api(`/api/browser/list?path=${encodeURIComponent(relativePath || '')}`);
     state.viewer.path = data.path || '';
     state.viewer.loaded = true;
+    pingPresence();
     state.viewer.selected = null;
     renderBreadcrumb(state.viewer.path);
     els.viewerCount.textContent = `${data.directories.length} папок · ${data.images.length} фото`;
@@ -309,6 +335,7 @@
   function patchCard(card, photo) {
     if (!card || !photo) return;
     card.dataset.version = String(photo.version || 1);
+    if (card.dataset.scope === 'mode1') card.dataset.filterKey = mode1FilterKey(photo);
     const badges=card.querySelector('.photo-badges'); if (badges) badges.innerHTML=buildBadges(photo);
     const name=card.querySelector('.photo-name'); if (name) name.textContent=photo.name||'';
     const img=card.querySelector('.photo-thumb img'); if (img) img.alt=photo.name||'';
@@ -317,6 +344,7 @@
   function createPhotoCard(photo, { scope, selectable=true, index=null, draggable=false }={}) {
     const card=document.createElement('div'); card.className='photo-card'; card.tabIndex=0;
     if(photo.id) card.dataset.photoId=photo.id; card.dataset.scope=scope||''; card.dataset.version=String(photo.version||1);
+    if(scope==='mode1') card.dataset.filterKey=mode1FilterKey(photo);
     if(draggable) card.draggable=true;
     const frame=document.createElement('div');frame.className='photo-thumb';
     const img=document.createElement('img');img.alt=photo.name||'';img.draggable=false;img.loading='lazy';img.decoding='async';lazyImage(img,thumbUrl(photo));frame.appendChild(img);
@@ -342,7 +370,13 @@
 
   function syncSelectionUI(scope) {
     const s=selectionState(scope);
-    document.querySelectorAll(`.photo-card[data-scope="${scope}"]`).forEach(card=>card.classList.toggle('selected',s.selected.has(card.dataset.photoId)));
+    document.querySelectorAll(`.photo-card[data-scope="${scope}"].selected`).forEach(card=>{
+      if(!s.selected.has(card.dataset.photoId))card.classList.remove('selected');
+    });
+    for(const id of s.selected){
+      const card=document.querySelector(`.photo-card[data-scope="${scope}"][data-photo-id="${CSS.escape(id)}"]`);
+      if(card&&!card.classList.contains('selected'))card.classList.add('selected');
+    }
     if(scope==='mode1'){
       els.mode1Selected.textContent=`Выбрано: ${s.selected.size}`; const disabled=!s.selected.size; els.mode1PeopleBtn.disabled=disabled;els.mode1EquipmentBtn.disabled=disabled;els.mode1RawBtn.disabled=disabled;
     } else {
@@ -390,12 +424,23 @@
     return state.mode1.photos.filter(mode1PhotoVisible);
   }
 
-  function updateMode1FilterChips() {
-    const counts={people:0,equipment:0,raw:0};
-    for (const photo of state.mode1.photos) counts[mode1FilterKey(photo)] += 1;
-    els.mode1FilterPeopleCount.textContent=String(counts.people);
-    els.mode1FilterEquipmentCount.textContent=String(counts.equipment);
-    els.mode1FilterRawCount.textContent=String(counts.raw);
+  function mode1Counts() {
+    const total={people:0,equipment:0,raw:0};
+    const halls=new Map();
+    for (const photo of state.mode1.photos) {
+      const key=mode1FilterKey(photo);
+      total[key]+=1;
+      if(!halls.has(photo.hall))halls.set(photo.hall,{people:0,equipment:0,raw:0});
+      halls.get(photo.hall)[key]+=1;
+    }
+    return { total, halls };
+  }
+
+  function updateMode1FilterChips(counts = null) {
+    const total=(counts || mode1Counts()).total;
+    els.mode1FilterPeopleCount.textContent=String(total.people);
+    els.mode1FilterEquipmentCount.textContent=String(total.equipment);
+    els.mode1FilterRawCount.textContent=String(total.raw);
     for (const [key,button] of [['people',els.mode1FilterPeople],['equipment',els.mode1FilterEquipment],['raw',els.mode1FilterRaw]]) {
       const active=state.mode1.filters[key] !== false;
       button.classList.toggle('active',active);
@@ -404,19 +449,28 @@
   }
 
   function applyMode1Filters() {
-    const visibleIds=new Set(mode1VisiblePhotos().map(photo=>photo.id));
-    for (const id of [...state.mode1.selected]) if (!visibleIds.has(id)) state.mode1.selected.delete(id);
-    state.mode1.lastIndex=null;
+    const counts=mode1Counts();
+    els.mode1Groups.classList.toggle('hide-people',state.mode1.filters.people===false);
+    els.mode1Groups.classList.toggle('hide-equipment',state.mode1.filters.equipment===false);
+    els.mode1Groups.classList.toggle('hide-raw',state.mode1.filters.raw===false);
 
-    document.querySelectorAll('#mode1Groups .photo-card[data-scope="mode1"]').forEach(card=>{
-      const photo=state.mode1.photos.find(item=>item.id===card.dataset.photoId);
-      card.classList.toggle('hidden',!photo || !mode1PhotoVisible(photo));
-    });
+    const byId=new Map(state.mode1.photos.map(photo=>[photo.id,photo]));
+    let selectionChanged=false;
+    for (const id of [...state.mode1.selected]) {
+      const photo=byId.get(id);
+      if (!photo || !mode1PhotoVisible(photo)) {
+        state.mode1.selected.delete(id);
+        const card=document.querySelector(`.photo-card[data-scope="mode1"][data-photo-id="${CSS.escape(id)}"]`);
+        if(card)card.classList.remove('selected');
+        selectionChanged=true;
+      }
+    }
+    state.mode1.lastIndex=null;
 
     let visibleTotal=0;
     document.querySelectorAll('#mode1Groups .hall-group').forEach(section=>{
-      const cards=[...section.querySelectorAll('.photo-card[data-scope="mode1"]')];
-      const visible=cards.filter(card=>!card.classList.contains('hidden')).length;
+      const hallCounts=counts.halls.get(section.dataset.hall)||{people:0,equipment:0,raw:0};
+      const visible=(state.mode1.filters.people!==false?hallCounts.people:0)+(state.mode1.filters.equipment!==false?hallCounts.equipment:0)+(state.mode1.filters.raw!==false?hallCounts.raw:0);
       visibleTotal+=visible;
       section.classList.toggle('hidden',visible===0);
       const title=section.querySelector('.hall-title');
@@ -424,8 +478,11 @@
     });
 
     els.mode1Empty.classList.toggle('hidden',visibleTotal>0);
-    updateMode1FilterChips();
-    syncSelectionUI('mode1');
+    updateMode1FilterChips(counts);
+    els.mode1Selected.textContent=`Выбрано: ${state.mode1.selected.size}`;
+    const disabled=!state.mode1.selected.size;
+    els.mode1PeopleBtn.disabled=disabled;els.mode1EquipmentBtn.disabled=disabled;els.mode1RawBtn.disabled=disabled;
+    if(selectionChanged) state.mode1.lastIndex=null;
   }
 
   function toggleMode1Filter(key) {
@@ -613,23 +670,20 @@
     else if(activeTab()==='mode2')await refreshMode2Diff();
   }
 
-  async function undo(){const data=await api('/api/undo',{method:'POST',body:'{}'});if(!data.ok)return toast(data.message||'Нет действий для отмены');state.viewer.loaded=false;state.mode1.loaded=false;state.mode2.loaded=false;await refreshActive();toast(`Отменено операций: ${data.count}`);}
   async function refreshActive(){const tab=activeTab();if(tab==='viewer')await loadViewer(state.viewer.path||'');else if(tab==='mode1')await loadMode1();else if(tab==='mode2')await loadMode2();}
 
   els.setupBtn.addEventListener('click',()=>safe(setupRoot));els.setupPath.addEventListener('keydown',e=>{if(e.key==='Enter')safe(setupRoot);});
-  els.undoBtn.addEventListener('click',()=>safe(undo));
   els.viewerReloadBtn.addEventListener('click',()=>safe(()=>loadViewer(state.viewer.path||'')));
   els.previewImageButton.addEventListener('click',()=>{if(state.viewer.selected)openModal(state.viewer.selected);});
   els.mode1ReloadBtn.addEventListener('click',()=>safe(loadMode1));els.mode1PeopleBtn.addEventListener('click',()=>safe(()=>applyMode1('people')));els.mode1EquipmentBtn.addEventListener('click',()=>safe(()=>applyMode1('equipment')));els.mode1RawBtn.addEventListener('click',()=>safe(()=>applyMode1('raw')));
   els.mode1FilterPeople.addEventListener('click',()=>toggleMode1Filter('people'));
   els.mode1FilterEquipment.addEventListener('click',()=>toggleMode1Filter('equipment'));
   els.mode1FilterRaw.addEventListener('click',()=>toggleMode1Filter('raw'));
-  els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await refreshSessions();}));els.mode2ReloadBtn.addEventListener('click',()=>safe(loadMode2));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
+  els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await pingPresence();}));els.mode2ReloadBtn.addEventListener('click',()=>safe(loadMode2));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
   els.contextResetBtn.addEventListener('click',()=>safe(async()=>{hideContextMenu();await resetMode2();}));document.addEventListener('click',e=>{if(!els.contextMenu.contains(e.target))hideContextMenu();});
   els.modalCloseBtn.addEventListener('click',closeModal);els.imageModal.addEventListener('click',e=>{if(e.target===els.imageModal)closeModal();});
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){if(!els.imageModal.classList.contains('hidden'))closeModal();hideContextMenu();return;}
-    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();safe(undo);return;}
     if(e.target.matches('input,textarea,select'))return;
     if(activeTab()==='mode1'){
       if(e.key==='1'){e.preventDefault();safe(()=>applyMode1('people'));}
@@ -668,108 +722,8 @@
 
   async function logout() {
     try { await fetch('/api/auth/logout', { method:'POST', credentials:'same-origin' }); } catch (_) {}
-    closeUpload();
+    stopSessionStream();
     showLogin(true);
-  }
-
-  function openUpload() {
-    els.uploadPasswordInput.value = '';
-    els.uploadFolderInput.value = '';
-    els.uploadSummary.textContent = 'Папка не выбрана';
-    els.uploadProgress.value = 0;
-    els.uploadProgressText.textContent = '';
-    els.uploadStartBtn.disabled = false;
-    els.uploadModal.classList.remove('hidden');
-    els.uploadModal.setAttribute('aria-hidden','false');
-    setTimeout(()=>els.uploadPasswordInput.focus(),0);
-  }
-
-  function closeUpload() {
-    if (els.uploadStartBtn.dataset.busy === '1') return;
-    els.uploadModal.classList.add('hidden');
-    els.uploadModal.setAttribute('aria-hidden','true');
-  }
-
-  function humanUploadBytes(bytes) {
-    const units=['Б','КБ','МБ','ГБ']; let value=Number(bytes||0),i=0;
-    while(value>=1024&&i<units.length-1){value/=1024;i++;}
-    return `${value.toFixed(i?1:0)} ${units[i]}`;
-  }
-
-  function selectedUploadFiles() {
-    const files=[...els.uploadFolderInput.files];
-    if(!files.length)throw new Error('Выберите корневую папку проекта');
-    const supported=/\.(jpe?g|png|webp|heic)$/i;
-    const usable=files.filter(file=>supported.test(file.name)&&!/_thumb(?:\s*\(\d+\))?/i.test(file.name));
-    if(!usable.length)throw new Error('В выбранной папке нет поддерживаемых фотографий');
-    const roots=new Set(usable.map(file=>(file.webkitRelativePath||file.name).replace(/\\/g,'/').split('/').filter(Boolean)[0]));
-    if(roots.size!==1)throw new Error('Не удалось определить единую корневую папку');
-    const rootName=[...roots][0];
-    return usable.map(file=>{
-      const raw=(file.webkitRelativePath||file.name).replace(/\\/g,'/');
-      const parts=raw.split('/').filter(Boolean);
-      if(parts[0]===rootName)parts.shift();
-      if(parts.length<2)throw new Error('Выберите папку проекта, а не отдельный зал');
-      if(['raw','Люди','Оборудование'].includes(parts[0]))throw new Error('Выберите корневую папку проекта, внутри которой находятся залы');
-      return { file, relativePath:parts.join('/') };
-    });
-  }
-
-  async function adminFetch(url, options, password) {
-    return api(url, { ...options, headers:{ ...(options?.headers||{}), 'x-upload-password':headerValue(password) } });
-  }
-
-  async function startUpload() {
-    const password=els.uploadPasswordInput.value;
-    if(!password)throw new Error('Введите пароль загрузки');
-    const entries=selectedUploadFiles();
-    const verify=await adminFetch('/api/admin/upload/verify',{method:'POST',body:JSON.stringify({})},password);
-    const chunkSize=Math.min(Number(verify.maxChunkBytes||8*1024*1024),8*1024*1024);
-    const totalBytes=entries.reduce((sum,item)=>sum+item.file.size,0);
-    let doneBytes=0;
-    let doneFiles=0;
-    els.uploadStartBtn.disabled=true;els.uploadStartBtn.dataset.busy='1';els.uploadFolderInput.disabled=true;els.uploadPasswordInput.disabled=true;
-    const update=()=>{
-      const pct=totalBytes?Math.min(100,doneBytes/totalBytes*100):0;
-      els.uploadProgress.value=pct;
-      els.uploadProgressText.textContent=`${doneFiles}/${entries.length} файлов · ${humanUploadBytes(doneBytes)} / ${humanUploadBytes(totalBytes)} · ${pct.toFixed(1)}%`;
-    };
-    update();
-    try {
-      for(const entry of entries){
-        const encoded=encodeURIComponent(entry.relativePath);
-        let status=await adminFetch(`/api/admin/upload/status?path=${encoded}&total=${entry.file.size}`,{method:'GET'},password);
-        if(status.conflict)throw new Error(`Файл уже существует с другим размером: ${entry.relativePath}`);
-        let offset=Number(status.received||0);
-        doneBytes+=offset;
-        if(status.complete){doneFiles++;update();continue;}
-        while(offset<entry.file.size){
-          const end=Math.min(entry.file.size,offset+chunkSize);
-          const blob=entry.file.slice(offset,end);
-          try {
-            const result=await adminFetch(`/api/admin/upload/chunk?path=${encoded}&total=${entry.file.size}&offset=${offset}`,{method:'PUT',body:blob},password);
-            const next=Number(result.received);
-            doneBytes+=Math.max(0,next-offset);offset=next;update();
-          } catch(err) {
-            if(err.status===409&&Number.isFinite(err.expectedOffset)){
-              const next=err.expectedOffset;
-              doneBytes+=Math.max(0,next-offset);offset=next;update();continue;
-            }
-            throw err;
-          }
-        }
-        doneFiles++;update();
-      }
-      els.uploadProgressText.textContent='Индексирую загруженные фотографии…';
-      const finish=await adminFetch('/api/admin/upload/finish',{method:'POST',body:JSON.stringify({})},password);
-      state.viewer.loaded=false;state.mode1.loaded=false;state.mode2.loaded=false;
-      await loadProject();
-      toast(`Загрузка завершена: ${finish.photos} фото в базе`);
-      delete els.uploadStartBtn.dataset.busy;
-      closeUpload();
-    } finally {
-      els.uploadStartBtn.disabled=false;els.uploadFolderInput.disabled=false;els.uploadPasswordInput.disabled=false;delete els.uploadStartBtn.dataset.busy;
-    }
   }
 
   async function init() {
@@ -802,18 +756,9 @@
 
   els.loginForm.addEventListener('submit',e=>{e.preventDefault();login();});
   els.logoutBtn.addEventListener('click',()=>safe(logout));
-  els.uploadBtn.addEventListener('click',openUpload);
-  els.uploadCloseBtn.addEventListener('click',closeUpload);
-  els.uploadCancelBtn.addEventListener('click',closeUpload);
-  els.uploadStartBtn.addEventListener('click',()=>safe(startUpload));
-  els.uploadFolderInput.addEventListener('change',()=>{
-    try { const files=selectedUploadFiles(); const bytes=files.reduce((s,x)=>s+x.file.size,0); els.uploadSummary.textContent=`${files.length} фото · ${humanUploadBytes(bytes)}`; }
-    catch(err){els.uploadSummary.textContent=err.message;}
-  });
-  els.uploadModal.addEventListener('click',e=>{if(e.target===els.uploadModal)closeUpload();});
 
   setTabs();
   safe(init);
-  setInterval(()=>{if(!els.loginScreen.classList.contains('hidden'))return;safe(refreshSessions);},15000);
+  setInterval(()=>{if(!els.loginScreen.classList.contains('hidden'))return;safe(refreshSessions);},60000);
   setInterval(()=>{if(!els.loginScreen.classList.contains('hidden'))return;safe(liveRefresh);},5000);
 })();
