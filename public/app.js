@@ -7,23 +7,27 @@
 
   const $ = id => document.getElementById(id);
   const els = {
-    loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginPassword:$('loginPassword'), loginBtn:$('loginBtn'), loginError:$('loginError'),
+    loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginName:$('loginName'), loginPin:$('loginPin'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
-    setupPath:$('setupPath'), setupBtn:$('setupBtn'), syncBtn:$('syncBtn'), undoBtn:$('undoBtn'), uploadBtn:$('uploadBtn'), logoutBtn:$('logoutBtn'),
+    setupPath:$('setupPath'), setupBtn:$('setupBtn'), undoBtn:$('undoBtn'), uploadBtn:$('uploadBtn'), logoutBtn:$('logoutBtn'),
     viewerBreadcrumb:$('viewerBreadcrumb'), viewerReloadBtn:$('viewerReloadBtn'), viewerCount:$('viewerCount'),
     viewerFolders:$('viewerFolders'), viewerGrid:$('viewerGrid'), viewerEmpty:$('viewerEmpty'),
     previewEmpty:$('previewEmpty'), previewContent:$('previewContent'), previewImageButton:$('previewImageButton'), previewImage:$('previewImage'), previewFileName:$('previewFileName'), previewMeta:$('previewMeta'),
-    mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1ReloadBtn:$('mode1ReloadBtn'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
+    mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1ReloadBtn:$('mode1ReloadBtn'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
     mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), mode2ReloadBtn:$('mode2ReloadBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
     contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
     uploadModal:$('uploadModal'), uploadCloseBtn:$('uploadCloseBtn'), uploadCancelBtn:$('uploadCancelBtn'), uploadPasswordInput:$('uploadPasswordInput'), uploadFolderInput:$('uploadFolderInput'), uploadSummary:$('uploadSummary'), uploadProgress:$('uploadProgress'), uploadProgressText:$('uploadProgressText'), uploadStartBtn:$('uploadStartBtn'),
     toast:$('toast'),
   };
 
+  const loginPinInputs = [...document.querySelectorAll('.pin-digit')];
+  const loginPinValue = () => loginPinInputs.map(input => input.value).join('');
+  const clearLoginPin = () => loginPinInputs.forEach(input => { input.value = ''; });
+
   const state = {
     root:null, halls:[],
     viewer:{ path:'', loaded:false, selected:null, previewRequest:0 },
-    mode1:{ photos:[], selected:new Set(), lastIndex:null, loaded:false },
+    mode1:{ photos:[], selected:new Set(), lastIndex:null, loaded:false, filters:{people:true,equipment:true,raw:true} },
     mode2:{ hall:'', people:[], photos:[], selected:new Set(), lastIndex:null, loaded:false },
     contextPhotoId:null,
   };
@@ -42,7 +46,7 @@
       els.workspace.classList.add('hidden');
       els.workspaceActions.classList.add('hidden');
       els.projectLabel.textContent = 'Требуется вход';
-      setTimeout(() => els.loginPassword.focus(), 0);
+      setTimeout(() => (els.loginName.value.trim() ? loginPinInputs[0] : els.loginName).focus(), 0);
     }
   }
 
@@ -131,7 +135,7 @@
       const pill = document.createElement('div');
       pill.className = `session-pill${item.id === sessionId ? ' current' : ''}`;
       const mode = item.mode === 'mode1' ? 'Люди / оборудование' : item.mode === 'mode2' ? 'Люди / ФИО' : 'Файлы';
-      const detail = `${item.id === sessionId ? 'Вы' : item.display_name} · ${mode}${item.hall ? ` · ${item.hall}` : ''}`;
+      const detail = `${item.display_name}${item.id === sessionId ? ' (вы)' : ''} · ${mode}${item.hall ? ` · ${item.hall}` : ''}`;
       pill.title = detail;
       pill.innerHTML = `<span class="session-dot"></span><span class="session-text">${escapeHtml(detail)}</span>`;
       els.activeSessions.appendChild(pill);
@@ -217,7 +221,7 @@
     els.viewerFolders.innerHTML = '';
     data.directories.forEach(dir => {
       const btn = document.createElement('button'); btn.className='folder-card';
-      btn.innerHTML = `<span class="folder-icon">📁</span><span>${escapeHtml(dir.name)}</span>`;
+      btn.innerHTML = `<span class="folder-card-main"><span class="folder-icon">📁</span><span class="folder-name">${escapeHtml(dir.name)}</span></span><span class="folder-photo-count">${Number(dir.photoCount || 0)} фото</span>`;
       btn.addEventListener('click', ()=>safe(()=>loadViewer(dir.relativePath)));
       els.viewerFolders.appendChild(btn);
     });
@@ -325,10 +329,12 @@
   }
 
   function selectionState(scope) { return scope==='mode1'?state.mode1:state.mode2; }
+  function selectionPhotos(scope) { return scope==='mode1'?mode1VisiblePhotos():selectionState(scope).photos; }
   function handleSelect(scope, photo, index, event) {
     const s=selectionState(scope); if(!photo.id)return;
+    if(scope==='mode1') index=selectionPhotos(scope).findIndex(p=>p.id===photo.id);
     if(event.shiftKey && s.lastIndex!=null && index!=null){
-      const photos=s.photos; const a=Math.min(s.lastIndex,index),b=Math.max(s.lastIndex,index); for(let i=a;i<=b;i++)if(photos[i]?.id)s.selected.add(photos[i].id);
+      const photos=selectionPhotos(scope); const a=Math.min(s.lastIndex,index),b=Math.max(s.lastIndex,index); for(let i=a;i<=b;i++)if(photos[i]?.id)s.selected.add(photos[i].id);
     } else if(event.ctrlKey||event.metaKey){ if(s.selected.has(photo.id))s.selected.delete(photo.id);else s.selected.add(photo.id); s.lastIndex=index; }
     else { s.selected.clear(); s.selected.add(photo.id); s.lastIndex=index; }
     syncSelectionUI(scope);
@@ -369,21 +375,79 @@
     state.mode2.people=state.mode2.people.map(person=>({...person,photoCount:counts.get(Number(person.id))||0}));
   }
 
+  function mode1FilterKey(photo) {
+    if (photo?.status === 'equipment') return 'equipment';
+    if (photo?.status === 'raw') return 'raw';
+    if (photo?.status === 'people' || photo?.status === 'person') return 'people';
+    return 'raw';
+  }
+
+  function mode1PhotoVisible(photo) {
+    return state.mode1.filters[mode1FilterKey(photo)] !== false;
+  }
+
+  function mode1VisiblePhotos() {
+    return state.mode1.photos.filter(mode1PhotoVisible);
+  }
+
+  function updateMode1FilterChips() {
+    const counts={people:0,equipment:0,raw:0};
+    for (const photo of state.mode1.photos) counts[mode1FilterKey(photo)] += 1;
+    els.mode1FilterPeopleCount.textContent=String(counts.people);
+    els.mode1FilterEquipmentCount.textContent=String(counts.equipment);
+    els.mode1FilterRawCount.textContent=String(counts.raw);
+    for (const [key,button] of [['people',els.mode1FilterPeople],['equipment',els.mode1FilterEquipment],['raw',els.mode1FilterRaw]]) {
+      const active=state.mode1.filters[key] !== false;
+      button.classList.toggle('active',active);
+      button.setAttribute('aria-pressed',String(active));
+    }
+  }
+
+  function applyMode1Filters() {
+    const visibleIds=new Set(mode1VisiblePhotos().map(photo=>photo.id));
+    for (const id of [...state.mode1.selected]) if (!visibleIds.has(id)) state.mode1.selected.delete(id);
+    state.mode1.lastIndex=null;
+
+    document.querySelectorAll('#mode1Groups .photo-card[data-scope="mode1"]').forEach(card=>{
+      const photo=state.mode1.photos.find(item=>item.id===card.dataset.photoId);
+      card.classList.toggle('hidden',!photo || !mode1PhotoVisible(photo));
+    });
+
+    let visibleTotal=0;
+    document.querySelectorAll('#mode1Groups .hall-group').forEach(section=>{
+      const cards=[...section.querySelectorAll('.photo-card[data-scope="mode1"]')];
+      const visible=cards.filter(card=>!card.classList.contains('hidden')).length;
+      visibleTotal+=visible;
+      section.classList.toggle('hidden',visible===0);
+      const title=section.querySelector('.hall-title');
+      if(title) title.textContent=`ЗАЛ: ${section.dataset.hall || ''} · ${visible} фото`;
+    });
+
+    els.mode1Empty.classList.toggle('hidden',visibleTotal>0);
+    updateMode1FilterChips();
+    syncSelectionUI('mode1');
+  }
+
+  function toggleMode1Filter(key) {
+    state.mode1.filters[key]=!state.mode1.filters[key];
+    applyMode1Filters();
+  }
+
   async function loadMode1() {
     const data=await api('/api/mode1/photos');
     state.mode1.photos=data.photos||[];state.mode1.selected.clear();state.mode1.lastIndex=null;state.mode1.loaded=true;
     renderMode1();
   }
   function renderMode1() {
-    els.mode1Groups.innerHTML='';els.mode1Empty.classList.toggle('hidden',state.mode1.photos.length>0);
+    els.mode1Groups.innerHTML='';
     const groups=new Map(); state.mode1.photos.forEach((p,i)=>{if(!groups.has(p.hall))groups.set(p.hall,[]);groups.get(p.hall).push({p,i});});
     for(const [hall,items] of groups){
-      const section=document.createElement('section');section.className='hall-group';
+      const section=document.createElement('section');section.className='hall-group';section.dataset.hall=hall;
       const title=document.createElement('h2');title.className='hall-title';title.textContent=`ЗАЛ: ${hall} · ${items.length} фото`;
       const grid=document.createElement('div');grid.className='photo-grid';items.forEach(({p,i})=>grid.appendChild(createPhotoCard(p,{scope:'mode1',selectable:true,index:i})));
       section.append(title,grid);els.mode1Groups.appendChild(section);
     }
-    syncSelectionUI('mode1');
+    applyMode1Filters();
   }
 
   async function applyMode1(target) {
@@ -392,7 +456,7 @@
     try {
       const data=await api('/api/mode1/classify',{method:'POST',body:JSON.stringify({photoIds:ids,target,expectedVersions:expectedVersions('mode1',ids)})});
       patchStatePhotos('mode1',data.photos||[]);
-      state.mode1.selected.clear();state.mode1.lastIndex=null;syncSelectionUI('mode1');
+      state.mode1.selected.clear();state.mode1.lastIndex=null;applyMode1Filters();
       state.viewer.loaded=false;state.mode2.loaded=false;
       toast(`Обновлено фотографий: ${ids.length}`);
     } finally { markPending('mode1',ids,false); }
@@ -510,6 +574,7 @@
       const current=state.mode1.photos.find(p=>p.id===fresh.id);
       if(current && Number(current.version)!==Number(fresh.version)){Object.assign(current,fresh);patchCard(document.querySelector(`.photo-card[data-scope="mode1"][data-photo-id="${CSS.escape(fresh.id)}"]`),current);}
     }
+    applyMode1Filters();
   }
 
   async function refreshMode2Diff() {
@@ -548,15 +613,17 @@
     else if(activeTab()==='mode2')await refreshMode2Diff();
   }
 
-  async function syncProject(){const data=await api('/api/sync',{method:'POST',body:'{}'});state.viewer.loaded=false;state.mode1.loaded=false;state.mode2.loaded=false;toast(`Синхронизация: ${data.photos} фото`);await refreshActive();}
   async function undo(){const data=await api('/api/undo',{method:'POST',body:'{}'});if(!data.ok)return toast(data.message||'Нет действий для отмены');state.viewer.loaded=false;state.mode1.loaded=false;state.mode2.loaded=false;await refreshActive();toast(`Отменено операций: ${data.count}`);}
   async function refreshActive(){const tab=activeTab();if(tab==='viewer')await loadViewer(state.viewer.path||'');else if(tab==='mode1')await loadMode1();else if(tab==='mode2')await loadMode2();}
 
   els.setupBtn.addEventListener('click',()=>safe(setupRoot));els.setupPath.addEventListener('keydown',e=>{if(e.key==='Enter')safe(setupRoot);});
-  els.syncBtn.addEventListener('click',()=>safe(syncProject));els.undoBtn.addEventListener('click',()=>safe(undo));
+  els.undoBtn.addEventListener('click',()=>safe(undo));
   els.viewerReloadBtn.addEventListener('click',()=>safe(()=>loadViewer(state.viewer.path||'')));
   els.previewImageButton.addEventListener('click',()=>{if(state.viewer.selected)openModal(state.viewer.selected);});
   els.mode1ReloadBtn.addEventListener('click',()=>safe(loadMode1));els.mode1PeopleBtn.addEventListener('click',()=>safe(()=>applyMode1('people')));els.mode1EquipmentBtn.addEventListener('click',()=>safe(()=>applyMode1('equipment')));els.mode1RawBtn.addEventListener('click',()=>safe(()=>applyMode1('raw')));
+  els.mode1FilterPeople.addEventListener('click',()=>toggleMode1Filter('people'));
+  els.mode1FilterEquipment.addEventListener('click',()=>toggleMode1Filter('equipment'));
+  els.mode1FilterRaw.addEventListener('click',()=>toggleMode1Filter('raw'));
   els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await refreshSessions();}));els.mode2ReloadBtn.addEventListener('click',()=>safe(loadMode2));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
   els.contextResetBtn.addEventListener('click',()=>safe(async()=>{hideContextMenu();await resetMode2();}));document.addEventListener('click',e=>{if(!els.contextMenu.contains(e.target))hideContextMenu();});
   els.modalCloseBtn.addEventListener('click',closeModal);els.imageModal.addEventListener('click',e=>{if(e.target===els.imageModal)closeModal();});
@@ -575,15 +642,20 @@
     els.loginError.classList.add('hidden');
     els.loginBtn.disabled = true;
     try {
+      const name = els.loginName.value.trim().replace(/\s+/g, ' ');
+      const password = loginPinValue();
+      if (!name) { els.loginName.focus(); throw new Error('Введите имя'); }
+      if (!/^\d{5}$/.test(password)) { (loginPinInputs.find(input => !input.value) || loginPinInputs[0]).focus(); throw new Error('Введите 5 цифр PIN-кода'); }
       const res = await fetch('/api/auth/login', {
         method:'POST',
         credentials:'same-origin',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ password:els.loginPassword.value }),
+        body:JSON.stringify({ name, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка входа');
-      els.loginPassword.value = '';
+      localStorage.setItem('photoSorterLastName', name);
+      clearLoginPin();
       showLogin(false);
       await loadProject();
     } catch (err) {
@@ -707,6 +779,26 @@
     showLogin(false);
     await loadProject();
   }
+
+  els.loginName.value = localStorage.getItem('photoSorterLastName') || '';
+  loginPinInputs.forEach((input, index) => {
+    input.addEventListener('input', () => {
+      input.value = input.value.replace(/\D/g, '').slice(-1);
+      if (input.value && index < loginPinInputs.length - 1) loginPinInputs[index + 1].focus();
+    });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Backspace' && !input.value && index > 0) loginPinInputs[index - 1].focus();
+      if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); loginPinInputs[index - 1].focus(); }
+      if (event.key === 'ArrowRight' && index < loginPinInputs.length - 1) { event.preventDefault(); loginPinInputs[index + 1].focus(); }
+    });
+    input.addEventListener('paste', event => {
+      const digits = (event.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, 5);
+      if (!digits) return;
+      event.preventDefault();
+      loginPinInputs.forEach((field, i) => { field.value = digits[i] || ''; });
+      loginPinInputs[Math.min(digits.length, 5) - 1].focus();
+    });
+  });
 
   els.loginForm.addEventListener('submit',e=>{e.preventDefault();login();});
   els.logoutBtn.addEventListener('click',()=>safe(logout));

@@ -16,7 +16,6 @@
       <div class="header-actions hidden" id="workspaceActions">
         <div id="activeSessions" class="active-sessions" title="Активные сессии"></div>
         <button class="ghost" id="uploadBtn">↑ Загрузить фото</button>
-        <button class="ghost" id="syncBtn">↻ Синхронизировать</button>
         <button class="ghost" id="undoBtn">↶ Отменить</button>
         <button class="ghost" id="logoutBtn">Выйти</button>
       </div>
@@ -26,10 +25,18 @@
       <section id="loginScreen" class="screen">
         <div class="panel login-panel">
           <h1>Вход в Photo Sorter</h1>
-          <p class="muted">Введите общий пароль команды.</p>
+          <p class="muted">Укажите своё имя и общий 5-значный PIN-код команды.</p>
           <form id="loginForm" class="login-form">
-            <label for="loginPassword">Пароль</label>
-            <input id="loginPassword" type="password" autocomplete="current-password" required />
+            <label for="loginName">Имя</label>
+            <input id="loginName" type="text" autocomplete="name" maxlength="40" placeholder="Например, Антон" required />
+            <label id="loginPinLabel">PIN-код</label>
+            <div id="loginPin" class="pin-inputs" role="group" aria-labelledby="loginPinLabel">
+              <input class="pin-digit" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="Первая цифра PIN" required />
+              <input class="pin-digit" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Вторая цифра PIN" required />
+              <input class="pin-digit" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Третья цифра PIN" required />
+              <input class="pin-digit" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Четвёртая цифра PIN" required />
+              <input class="pin-digit" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Пятая цифра PIN" required />
+            </div>
             <button class="primary" type="submit" id="loginBtn">Войти</button>
             <div id="loginError" class="login-error hidden"></div>
           </form>
@@ -94,6 +101,13 @@
             <button id="mode1PeopleBtn" class="people-action" disabled>1 — Люди</button>
             <button id="mode1EquipmentBtn" class="equipment-action" disabled>2 — Оборудование</button>
             <button id="mode1RawBtn" disabled>0 — RAW</button>
+            <div class="toolbar-divider" aria-hidden="true"></div>
+            <div class="mode1-filter-group" role="group" aria-label="Фильтр фотографий">
+              <span class="mode1-filter-label">Показывать</span>
+              <button id="mode1FilterPeople" class="filter-chip people active" type="button" aria-pressed="true"><span class="filter-dot"></span>Люди <span id="mode1FilterPeopleCount" class="filter-count">0</span></button>
+              <button id="mode1FilterEquipment" class="filter-chip equipment active" type="button" aria-pressed="true"><span class="filter-dot"></span>Оборудование <span id="mode1FilterEquipmentCount" class="filter-count">0</span></button>
+              <button id="mode1FilterRaw" class="filter-chip raw active" type="button" aria-pressed="true"><span class="filter-dot"></span>RAW <span id="mode1FilterRawCount" class="filter-count">0</span></button>
+            </div>
             <button id="mode1ReloadBtn">Обновить</button>
           </div>
           <div id="mode1Empty" class="empty hidden">Фотографии не найдены.</div>

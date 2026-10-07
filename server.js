@@ -113,12 +113,12 @@ function sessionIdFrom(req) {
   return /^[a-zA-Z0-9._:-]{8,128}$/.test(value) ? value : 'local';
 }
 
-function touchClientSession(req) {
+function touchClientSession(req, displayName) {
   const sessionId = sessionIdFrom(req);
   if (req.headers['x-session-id']) {
     const mode = decodeHeaderValue(req.headers['x-client-mode']).slice(0, 32) || null;
     const hall = decodeHeaderValue(req.headers['x-client-hall']).slice(0, 128) || null;
-    store.touchSession(sessionId, { mode, hall });
+    store.touchSession(sessionId, { displayName, mode, hall });
   }
   return sessionId;
 }
@@ -207,16 +207,19 @@ function parseIds(body) {
 async function authRoute(req, res, route, body) {
   if (route === '/api/auth/status' && req.method === 'GET') {
     const session = auth.sessionFromRequest(req);
-    return sendJson(res, 200, { authenticated:Boolean(session), expiresAt:session?.expiresAt || null });
+    return sendJson(res, 200, { authenticated:Boolean(session), name:session?.name || null, expiresAt:session?.expiresAt || null });
   }
   if (route === '/api/auth/login' && req.method === 'POST') {
     if (!loginAllowed(req)) return sendJson(res, 429, { error:'Слишком много попыток входа. Повторите через минуту.' });
+    const name = auth.normalizeDisplayName(body.name);
+    if (!name) return sendJson(res, 400, { error:'Введите имя' });
+    if (!/^\d{5}$/.test(String(body.password || ''))) return sendJson(res, 400, { error:'PIN-код должен состоять из 5 цифр' });
     if (!auth.passwordValid(body.password)) {
       noteLoginFailure(req);
-      return sendJson(res, 401, { error:'Неверный пароль' });
+      return sendJson(res, 401, { error:'Неверный PIN-код' });
     }
     clearLoginFailures(req);
-    return sendJson(res, 200, { ok:true }, { 'Set-Cookie':auth.issueSessionCookie() });
+    return sendJson(res, 200, { ok:true, name }, { 'Set-Cookie':auth.issueSessionCookie(name) });
   }
   if (route === '/api/auth/logout' && req.method === 'POST') {
     return sendJson(res, 200, { ok:true }, { 'Set-Cookie':auth.clearSessionCookie() });
@@ -231,8 +234,8 @@ async function apiRoute(req, res, url, body) {
   const authHandled = await authRoute(req, res, route, body || {});
   if (authHandled !== false) return authHandled;
 
-  requireAuth(req);
-  const sessionId = touchClientSession(req);
+  const authSession = requireAuth(req);
+  const sessionId = touchClientSession(req, authSession.name);
 
   if (method === 'GET' && route === '/api/system') {
     return sendJson(res, 200, { hostname:os.hostname(), port:PORT, platform:process.platform, node:process.version, networkUrls:networkAddresses(PORT) });
@@ -264,13 +267,6 @@ async function apiRoute(req, res, url, body) {
     await state.setConfiguredRoot(requested);
     const sync = await service.initializeRoot(requested);
     return sendJson(res, 200, { root:requested, halls:await listHalls(requested), sync });
-  }
-
-  if (method === 'POST' && route === '/api/sync') {
-    const root = await requireRoot();
-    const result = await service.syncFilesystem(root);
-    scheduleThumbnailWarm(root, 'manual-sync');
-    return sendJson(res, 200, { ok:true, ...result });
   }
 
   if (method === 'GET' && route === '/api/browser/list') {

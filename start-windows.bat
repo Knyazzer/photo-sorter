@@ -37,8 +37,8 @@ if errorlevel 1 (
   )
 )
 cls
-echo Запуск Photo Sorter 2.3.2...
-echo Локальный пароль по умолчанию: photo-sorter
+echo Запуск Photo Sorter 2.6...
+echo Локальный PIN по умолчанию: 12345
 echo Пароль загрузки по умолчанию: upload-photo-sorter
 echo.
 node server.js
