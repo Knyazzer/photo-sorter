@@ -19,3 +19,6 @@ uploads/
 .env
 runtime/
 *.upload-part
+
+
+photo-sorter-documentation
