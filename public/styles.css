@@ -75,3 +75,12 @@ main{padding:20px}.screen{max-width:1700px;margin:0 auto}.panel{background:var(-
 .instruction-content ul{margin:7px 0 7px 20px;padding:0}
 .instruction-content li{margin:4px 0}
 @media(max-width:700px){.instruction-tab{margin-left:0}.instruction-content section{padding:12px}}
+
+
+/* Mobile blocker: Photo Sorter is desktop-only. Edit public/mobile-message.txt to change copy. */
+.mobile-block{display:none}
+html.mobile-blocked,html.mobile-blocked body{min-height:100%;height:100%;overflow:hidden;background:var(--bg)}
+html.mobile-blocked #app{display:none!important}
+html.mobile-blocked .mobile-block{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:32px 24px;text-align:center;background:var(--bg);color:var(--text)}
+.mobile-block-message{width:min(92vw,560px);font-size:clamp(20px,5.5vw,30px);font-weight:700;line-height:1.4;white-space:pre-line;text-wrap:balance}
+.mobile-block-wink{font-size:64px;line-height:1;filter:drop-shadow(0 8px 24px #0006)}
