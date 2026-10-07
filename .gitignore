@@ -1,8 +1,16 @@
 node_modules/
+
+# Локальная конфигурация и рабочая БД
 data/config.json
 data/state.json
 data/state.legacy.json
 data/photo-sorter.sqlite
 data/photo-sorter.sqlite-*
+data/thumb-cache/
+
+# Фотографии не храним в Git-истории приложения
+storage/
+uploads/
+
 *.log
 .DS_Store

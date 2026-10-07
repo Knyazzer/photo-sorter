@@ -6,6 +6,7 @@ const os = require('os');
 const store = require('./lib/photo-store');
 const state = require('./lib/state-store');
 const service = require('./lib/photo-service');
+const { ensureThumbnail } = require('./lib/thumbnail-cache');
 const {
   safeExistingPath,
   listHalls,
@@ -51,6 +52,21 @@ async function readJsonBody(req) {
 
 function tokenFrom(req, url, body) {
   return req.headers['x-access-token'] || url.searchParams.get('token') || body?.token || '';
+}
+
+function sessionIdFrom(req) {
+  const value = String(req.headers['x-session-id'] || '').trim();
+  return /^[a-zA-Z0-9._:-]{8,128}$/.test(value) ? value : 'local';
+}
+
+function touchClientSession(req) {
+  const sessionId = sessionIdFrom(req);
+  if (req.headers['x-session-id']) {
+    const mode = String(req.headers['x-client-mode'] || '').slice(0, 32) || null;
+    const hall = String(req.headers['x-client-hall'] || '').slice(0, 128) || null;
+    store.touchSession(sessionId, { mode, hall });
+  }
+  return sessionId;
 }
 
 async function requireRoot() {
@@ -114,9 +130,18 @@ async function apiRoute(req, res, url, body) {
   if (tokenFrom(req, url, body) !== ACCESS_TOKEN) return sendJson(res, 401, { error:'Неверный ключ доступа' });
   const method = req.method || 'GET';
   const route = url.pathname;
+  const sessionId = touchClientSession(req);
 
   if (method === 'GET' && route === '/api/system') {
     return sendJson(res, 200, { hostname:os.hostname(), port:PORT, platform:process.platform, node:process.version, networkUrls:networkAddresses(PORT, ACCESS_TOKEN) });
+  }
+
+  if (method === 'POST' && route === '/api/session') {
+    return sendJson(res, 200, { ok:true, sessionId });
+  }
+
+  if (method === 'GET' && route === '/api/sessions') {
+    return sendJson(res, 200, { sessionId, sessions:store.listActiveSessions(90) });
   }
 
   if (method === 'GET' && route === '/api/project') {
@@ -150,12 +175,30 @@ async function apiRoute(req, res, url, body) {
 
   if (method === 'GET' && route === '/api/photo/metadata') {
     const root = await requireRoot();
+    const photoId = String(url.searchParams.get('id') || '');
+    if (photoId) return sendJson(res, 200, await service.photoMetadataById(root, photoId));
     const relativePath = String(url.searchParams.get('path') || '');
     return sendJson(res, 200, await service.photoMetadata(root, relativePath));
   }
 
   if (method === 'GET' && (route === '/api/preview' || route === '/api/image')) {
     const root = await requireRoot();
+    const photoId = String(url.searchParams.get('id') || '');
+    if (photoId) {
+      const photo = service.getPhotoById(photoId);
+      if (route === '/api/preview') {
+        try {
+          const thumb = await ensureThumbnail(root, photo);
+          return streamFile(res, thumb, true);
+        } catch (err) {
+          console.warn(`Thumbnail fallback for ${photoId}:`, err.message);
+        }
+      }
+      const absolute = await safeExistingPath(root, photo.current_relative_path);
+      const filename = path.basename(absolute);
+      if (!isImageFile(filename) || isThumbnail(filename)) throw new Error('Недопустимый файл изображения');
+      return streamFile(res, absolute, route === '/api/preview');
+    }
     const relativePath = String(url.searchParams.get('path') || '');
     const absolute = await safeExistingPath(root, relativePath);
     const filename = path.basename(absolute);
@@ -173,7 +216,7 @@ async function apiRoute(req, res, url, body) {
     const root = await requireRoot();
     const target = String(body.target || '');
     if (!['raw','people','equipment'].includes(target)) throw new Error('Неизвестная категория');
-    const photos = await service.movePhotos(root, parseIds(body), target);
+    const photos = await service.movePhotos(root, parseIds(body), target, { userId:sessionId, expectedVersions:body.expectedVersions || null });
     return sendJson(res, 200, { ok:true, photos });
   }
 
@@ -203,19 +246,19 @@ async function apiRoute(req, res, url, body) {
 
   if (method === 'POST' && route === '/api/mode2/assign') {
     const root = await requireRoot();
-    const photos = await service.assignPhotos(root, parseIds(body), Number(body.personId));
+    const photos = await service.assignPhotos(root, parseIds(body), Number(body.personId), sessionId, body.expectedVersions || null);
     return sendJson(res, 200, { ok:true, photos });
   }
 
   if (method === 'POST' && route === '/api/photos/reset') {
     const root = await requireRoot();
-    const photos = await service.movePhotos(root, parseIds(body), 'raw');
+    const photos = await service.movePhotos(root, parseIds(body), 'raw', { userId:sessionId, expectedVersions:body.expectedVersions || null });
     return sendJson(res, 200, { ok:true, photos });
   }
 
   if (method === 'POST' && route === '/api/undo') {
     const root = await requireRoot();
-    return sendJson(res, 200, await service.undoLast(root));
+    return sendJson(res, 200, await service.undoLast(root, sessionId));
   }
 
   return sendJson(res, 404, { error:'API route not found' });
@@ -232,7 +275,7 @@ const server = http.createServer(async (req, res) => {
     sendText(res, 404, 'Not found');
   } catch (err) {
     console.error(err);
-    if (!res.headersSent) sendJson(res, 400, { error:err.message || 'Неизвестная ошибка' });
+    if (!res.headersSent) sendJson(res, Number(err.statusCode || 400), { error:err.message || 'Неизвестная ошибка' });
     else res.destroy();
   }
 });

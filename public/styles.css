@@ -41,3 +41,13 @@ main{padding:20px}.screen{max-width:1700px;margin:0 auto}.panel{background:var(-
 .toast{position:fixed;right:20px;bottom:20px;background:#222831;border:1px solid var(--line);border-radius:12px;padding:13px 16px;max-width:460px;box-shadow:0 10px 40px #0008;z-index:400}.toast.error{border-color:#8e3e3e;color:#ffb0b0}
 @media(max-width:1050px){.browser-layout{grid-template-columns:1fr}.preview-panel{position:relative;top:auto;min-height:280px;max-height:none}.people-layout{grid-template-columns:1fr}.people-panel{position:relative;top:auto;max-height:none}.sticky-actions{top:78px}.hall-title{top:145px}}
 @media(max-width:700px){main{padding:10px}.topbar{padding:0 12px}.header-actions button{padding:8px}.setup-row{grid-template-columns:1fr}.photo-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.folder-grid{grid-template-columns:1fr 1fr}.toolbar{align-items:flex-start;flex-wrap:wrap}.sub{max-width:48vw}.sticky-actions{position:relative;top:auto}.hall-title{position:relative;top:auto}}
+
+/* Session presence and optimistic UI */
+.active-sessions{display:flex;align-items:center;gap:6px;margin-right:4px;max-width:360px;overflow:hidden}
+.session-pill{display:flex;align-items:center;gap:6px;min-width:0;max-width:170px;padding:6px 8px;border:1px solid var(--line);border-radius:999px;background:#171c22;font-size:11px;color:var(--muted)}
+.session-pill.current{border-color:#527aa3;color:#dcecff}
+.session-dot{width:8px;height:8px;border-radius:50%;background:var(--people);flex:0 0 auto}
+.session-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.photo-card.pending{pointer-events:none;opacity:.72}
+.photo-card.pending::after{content:'Сохраняю…';position:absolute;inset:auto 8px 35px 8px;padding:5px 8px;border-radius:7px;background:#0b0e12dd;border:1px solid var(--line);font-size:11px;text-align:center;z-index:5}
+@media(max-width:900px){.active-sessions{display:none}}

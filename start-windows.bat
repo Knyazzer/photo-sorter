@@ -18,7 +18,17 @@ if %NODE_MAJOR% LSS 22 (
   pause
   exit /b 1
 )
+if not exist "node_modules\sharp\package.json" (
+  echo.
+  echo Устанавливаю зависимости Photo Sorter...
+  call npm install --omit=dev
+  if errorlevel 1 (
+    echo Не удалось установить зависимости. Проверьте интернет и повторите запуск.
+    pause
+    exit /b 1
+  )
+)
 cls
-echo Запуск Photo Sorter 2.0...
+echo Запуск Photo Sorter 2.1...
 node server.js
 pause
