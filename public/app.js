@@ -10,12 +10,12 @@
     loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginName:$('loginName'), loginPin:$('loginPin'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
     setupPath:$('setupPath'), setupBtn:$('setupBtn'), logoutBtn:$('logoutBtn'),
-    viewerBreadcrumb:$('viewerBreadcrumb'), viewerReloadBtn:$('viewerReloadBtn'), viewerCount:$('viewerCount'),
+    viewerBreadcrumb:$('viewerBreadcrumb'), viewerCount:$('viewerCount'),
     viewerFolders:$('viewerFolders'), viewerGrid:$('viewerGrid'), viewerEmpty:$('viewerEmpty'),
     previewEmpty:$('previewEmpty'), previewContent:$('previewContent'), previewImageButton:$('previewImageButton'), previewImage:$('previewImage'), previewFileName:$('previewFileName'), previewMeta:$('previewMeta'),
-    mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1ReloadBtn:$('mode1ReloadBtn'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
-    mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), mode2ReloadBtn:$('mode2ReloadBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
-    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
+    mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1FilterPeople:$('mode1FilterPeople'), mode1FilterEquipment:$('mode1FilterEquipment'), mode1FilterRaw:$('mode1FilterRaw'), mode1FilterPeopleCount:$('mode1FilterPeopleCount'), mode1FilterEquipmentCount:$('mode1FilterEquipmentCount'), mode1FilterRawCount:$('mode1FilterRawCount'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
+    mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
+    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), instructionBtn:$('instructionBtn'), instructionModal:$('instructionModal'), instructionCloseBtn:$('instructionCloseBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
     toast:$('toast'),
   };
 
@@ -208,8 +208,8 @@
   }
 
   function setTabs() {
-    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => safe(async () => {
-      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.tab[data-tab]').forEach(tab => tab.addEventListener('click', () => safe(async () => {
+      document.querySelectorAll('.tab[data-tab]').forEach(x=>x.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
       tab.classList.add('active');
       $(tab.dataset.tab).classList.add('active');
@@ -672,18 +672,28 @@
 
   async function refreshActive(){const tab=activeTab();if(tab==='viewer')await loadViewer(state.viewer.path||'');else if(tab==='mode1')await loadMode1();else if(tab==='mode2')await loadMode2();}
 
+  function openInstruction() {
+    els.instructionModal.classList.remove('hidden');
+    els.instructionModal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeInstruction() {
+    els.instructionModal.classList.add('hidden');
+    els.instructionModal.setAttribute('aria-hidden', 'true');
+  }
+
   els.setupBtn.addEventListener('click',()=>safe(setupRoot));els.setupPath.addEventListener('keydown',e=>{if(e.key==='Enter')safe(setupRoot);});
-  els.viewerReloadBtn.addEventListener('click',()=>safe(()=>loadViewer(state.viewer.path||'')));
   els.previewImageButton.addEventListener('click',()=>{if(state.viewer.selected)openModal(state.viewer.selected);});
-  els.mode1ReloadBtn.addEventListener('click',()=>safe(loadMode1));els.mode1PeopleBtn.addEventListener('click',()=>safe(()=>applyMode1('people')));els.mode1EquipmentBtn.addEventListener('click',()=>safe(()=>applyMode1('equipment')));els.mode1RawBtn.addEventListener('click',()=>safe(()=>applyMode1('raw')));
+  els.mode1PeopleBtn.addEventListener('click',()=>safe(()=>applyMode1('people')));els.mode1EquipmentBtn.addEventListener('click',()=>safe(()=>applyMode1('equipment')));els.mode1RawBtn.addEventListener('click',()=>safe(()=>applyMode1('raw')));
   els.mode1FilterPeople.addEventListener('click',()=>toggleMode1Filter('people'));
   els.mode1FilterEquipment.addEventListener('click',()=>toggleMode1Filter('equipment'));
   els.mode1FilterRaw.addEventListener('click',()=>toggleMode1Filter('raw'));
-  els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await pingPresence();}));els.mode2ReloadBtn.addEventListener('click',()=>safe(loadMode2));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
+  els.mode2Hall.addEventListener('change',()=>safe(async()=>{state.mode2.hall=els.mode2Hall.value;await loadMode2();await pingPresence();}));els.mode2ResetBtn.addEventListener('click',()=>safe(resetMode2));els.personAddInput.addEventListener('keydown',e=>{if(e.key==='Enter')safe(addPerson);});
   els.contextResetBtn.addEventListener('click',()=>safe(async()=>{hideContextMenu();await resetMode2();}));document.addEventListener('click',e=>{if(!els.contextMenu.contains(e.target))hideContextMenu();});
+  els.instructionBtn.addEventListener('click',openInstruction);els.instructionCloseBtn.addEventListener('click',closeInstruction);els.instructionModal.addEventListener('click',e=>{if(e.target===els.instructionModal)closeInstruction();});
   els.modalCloseBtn.addEventListener('click',closeModal);els.imageModal.addEventListener('click',e=>{if(e.target===els.imageModal)closeModal();});
   document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){if(!els.imageModal.classList.contains('hidden'))closeModal();hideContextMenu();return;}
+    if(e.key==='Escape'){if(!els.instructionModal.classList.contains('hidden'))closeInstruction();if(!els.imageModal.classList.contains('hidden'))closeModal();hideContextMenu();return;}
     if(e.target.matches('input,textarea,select'))return;
     if(activeTab()==='mode1'){
       if(e.key==='1'){e.preventDefault();safe(()=>applyMode1('people'));}

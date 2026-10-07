@@ -64,3 +64,14 @@ main{padding:20px}.screen{max-width:1700px;margin:0 auto}.panel{background:var(-
 #mode1Groups.hide-raw .photo-card[data-filter-key="raw"]{display:none!important}
 #mode1Groups .photo-card{content-visibility:auto;contain:layout paint style;contain-intrinsic-size:220px}
 .upload-page-card{max-width:760px;margin:7vh auto;display:grid;gap:12px}.upload-page-card h1{margin:0 0 4px}.upload-page-card input[type="file"]{padding:10px;background:#101318}.upload-page-card progress{width:100%;height:18px}.button-link{display:inline-flex;align-items:center;text-decoration:none;border:1px solid var(--line);border-radius:9px;padding:9px 12px;color:var(--text);background:#171b21}
+
+/* Instruction dialog */
+.instruction-tab{margin-left:6px;border-left:1px solid var(--line)}
+.instruction-dialog{width:min(820px,96vw)}
+.instruction-content{display:grid;gap:18px;margin-top:10px;line-height:1.55}
+.instruction-content section{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#11151a}
+.instruction-content h3{margin:0 0 8px;font-size:15px}
+.instruction-content p{margin:7px 0;color:#d7dce3}
+.instruction-content ul{margin:7px 0 7px 20px;padding:0}
+.instruction-content li{margin:4px 0}
+@media(max-width:700px){.instruction-tab{margin-left:0}.instruction-content section{padding:12px}}

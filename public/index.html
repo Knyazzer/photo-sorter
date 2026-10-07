@@ -59,6 +59,7 @@
           <button class="tab active" data-tab="viewer">Файлы</button>
           <button class="tab" data-tab="mode1">Люди / оборудование</button>
           <button class="tab" data-tab="mode2">Люди / ФИО</button>
+          <button class="tab instruction-tab" id="instructionBtn" type="button">Инструкция</button>
         </nav>
 
         <section id="viewer" class="tab-content active">
@@ -66,7 +67,6 @@
             <nav id="viewerBreadcrumb" class="breadcrumb" aria-label="Путь"></nav>
             <div class="toolbar-spacer"></div>
             <span id="viewerCount" class="counter"></span>
-            <button id="viewerReloadBtn">Обновить</button>
           </div>
 
           <div class="browser-layout">
@@ -106,7 +106,6 @@
               <button id="mode1FilterEquipment" class="filter-chip equipment active" type="button" aria-pressed="true"><span class="filter-dot"></span>Оборудование <span id="mode1FilterEquipmentCount" class="filter-count">0</span></button>
               <button id="mode1FilterRaw" class="filter-chip raw active" type="button" aria-pressed="true"><span class="filter-dot"></span>RAW <span id="mode1FilterRawCount" class="filter-count">0</span></button>
             </div>
-            <button id="mode1ReloadBtn">Обновить</button>
           </div>
           <div id="mode1Empty" class="empty hidden">Фотографии не найдены.</div>
           <div id="mode1Groups"></div>
@@ -121,7 +120,6 @@
             <div class="toolbar-spacer"></div>
             <span id="mode2Selected" class="counter">Выбрано: 0</span>
             <button id="mode2ResetBtn" disabled>Вернуть в RAW</button>
-            <button id="mode2ReloadBtn">Обновить</button>
           </div>
 
           <div class="people-layout">
@@ -142,6 +140,42 @@
 
     <div id="contextMenu" class="context-menu hidden" role="menu">
       <button id="contextResetBtn">Отменить сортировку → RAW</button>
+    </div>
+
+    <div id="instructionModal" class="dialog-backdrop hidden" aria-hidden="true">
+      <div class="dialog-card instruction-dialog" role="dialog" aria-modal="true" aria-labelledby="instructionTitle">
+        <div class="dialog-head">
+          <div>
+            <h2 id="instructionTitle">Инструкция</h2>
+            <p class="muted">Краткая схема работы с Photo Sorter.</p>
+          </div>
+          <button class="dialog-close" id="instructionCloseBtn" type="button" aria-label="Закрыть">×</button>
+        </div>
+        <div class="instruction-content">
+          <section>
+            <h3>Сортировка «Люди / Оборудование»</h3>
+            <p>Все фотографии отображаются по залам и разделяются шапками, например: <strong>ЗАЛ: Арма · 527 фото</strong>.</p>
+            <p>Выберите одно или несколько фото и назначьте категорию кнопкой или клавишей:</p>
+            <ul>
+              <li><strong>1 — Люди</strong></li>
+              <li><strong>2 — Оборудование</strong></li>
+              <li><strong>0 — RAW</strong></li>
+            </ul>
+            <p><strong>RAW</strong> — фотографии, которые ещё не отсортированы.</p>
+            <p>Фильтры <strong>«Показывать: Люди / Оборудование / RAW»</strong> позволяют оставить на экране только нужные типы фотографий. Например, можно включить только RAW и работать только с неразобранными фото.</p>
+          </section>
+          <section>
+            <h3>Сортировка «Люди / ФИО»</h3>
+            <p>После того как фотография отнесена к категории <strong>«Люди»</strong>, она автоматически появляется в режиме сортировки по ФИО.</p>
+            <p>Выберите зал. Слева добавьте ФИО всех людей в этом зале.</p>
+            <p>Выберите одно или несколько фото и перетащите их на нужное ФИО. Система автоматически переместит фотографии в папку этого человека и переименует файлы.</p>
+          </section>
+          <section>
+            <h3>Важно</h3>
+            <p>Оба режима можно использовать независимо. Расположение и имя файла автоматически обновляются в соответствии с <strong>последним выполненным действием</strong>.</p>
+          </section>
+        </div>
+      </div>
     </div>
 
     <div id="imageModal" class="image-modal hidden" aria-hidden="true">
