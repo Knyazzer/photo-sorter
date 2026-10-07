@@ -103,6 +103,11 @@ function clearLoginFailures(req) {
   loginAttempts.delete(clientIp(req));
 }
 
+function decodeHeaderValue(value) {
+  const raw = String(value || '');
+  try { return decodeURIComponent(raw); } catch (_) { return raw; }
+}
+
 function sessionIdFrom(req) {
   const value = String(req.headers['x-session-id'] || '').trim();
   return /^[a-zA-Z0-9._:-]{8,128}$/.test(value) ? value : 'local';
@@ -111,8 +116,8 @@ function sessionIdFrom(req) {
 function touchClientSession(req) {
   const sessionId = sessionIdFrom(req);
   if (req.headers['x-session-id']) {
-    const mode = String(req.headers['x-client-mode'] || '').slice(0, 32) || null;
-    const hall = String(req.headers['x-client-hall'] || '').slice(0, 128) || null;
+    const mode = decodeHeaderValue(req.headers['x-client-mode']).slice(0, 32) || null;
+    const hall = decodeHeaderValue(req.headers['x-client-hall']).slice(0, 128) || null;
     store.touchSession(sessionId, { mode, hall });
   }
   return sessionId;
@@ -125,7 +130,8 @@ function requireAuth(req) {
 }
 
 function uploadPasswordFrom(req, body = null) {
-  return String(req.headers['x-upload-password'] || body?.uploadPassword || '');
+  if (req.headers['x-upload-password']) return decodeHeaderValue(req.headers['x-upload-password']);
+  return String(body?.uploadPassword || '');
 }
 
 function requireUploadPassword(req, body = null) {
@@ -285,7 +291,10 @@ async function apiRoute(req, res, url, body) {
           const thumb = await ensureThumbnail(root, photo);
           return streamFile(res, thumb, true);
         } catch (err) {
-          console.warn(`Thumbnail fallback for ${photoId}:`, err.message);
+          if (!thumbnailFallbackWarned) {
+            console.warn('Thumbnail cache недоступен, временно отдаю оригиналы:', err.message);
+            thumbnailFallbackWarned = true;
+          }
         }
       }
       const absolute = await safeExistingPath(root, photo.current_relative_path);
@@ -388,6 +397,8 @@ async function apiRoute(req, res, url, body) {
 
   return sendJson(res, 404, { error:'API route not found' });
 }
+
+let thumbnailFallbackWarned = false;
 
 const server = http.createServer(async (req, res) => {
   try {

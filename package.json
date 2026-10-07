@@ -1,6 +1,6 @@
 {
   "name": "photo-sorter-local",
-  "version": "2.3.0",
+  "version": "2.3.2",
   "private": true,
   "description": "Photo Sorter: файловый браузер, парольный доступ, многосессионная сортировка и VDS/Docker deployment",
   "main": "server.js",

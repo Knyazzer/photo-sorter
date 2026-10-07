@@ -46,12 +46,14 @@
     }
   }
 
+  const headerValue = value => encodeURIComponent(String(value ?? ''));
+
   async function api(url, options = {}) {
     const headers = {
       ...(options.headers || {}),
       'x-session-id':sessionId,
-      'x-client-mode':activeTab(),
-      'x-client-hall':currentHallForPresence(),
+      'x-client-mode':headerValue(activeTab()),
+      'x-client-hall':headerValue(currentHallForPresence()),
     };
     const isBinary = options.body instanceof Blob || options.body instanceof ArrayBuffer || ArrayBuffer.isView(options.body);
     if (options.body && !(options.body instanceof FormData) && !isBinary && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
@@ -641,7 +643,7 @@
   }
 
   async function adminFetch(url, options, password) {
-    return api(url, { ...options, headers:{ ...(options?.headers||{}), 'x-upload-password':password } });
+    return api(url, { ...options, headers:{ ...(options?.headers||{}), 'x-upload-password':headerValue(password) } });
   }
 
   async function startUpload() {

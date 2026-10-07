@@ -18,18 +18,26 @@ if %NODE_MAJOR% LSS 22 (
   pause
   exit /b 1
 )
-if not exist "node_modules\sharp\package.json" (
+node -e "require('sharp')" >nul 2>nul
+if errorlevel 1 (
   echo.
-  echo Устанавливаю зависимости Photo Sorter...
+  echo Устанавливаю/восстанавливаю зависимости Photo Sorter...
   call npm install --omit=dev
   if errorlevel 1 (
     echo Не удалось установить зависимости. Проверьте интернет и повторите запуск.
     pause
     exit /b 1
   )
+  node -e "require('sharp')" >nul 2>nul
+  if errorlevel 1 (
+    echo.
+    echo Sharp установлен некорректно. Попробуйте удалить node_modules и снова запустить start-windows.bat.
+    pause
+    exit /b 1
+  )
 )
 cls
-echo Запуск Photo Sorter 2.3...
+echo Запуск Photo Sorter 2.3.2...
 echo Локальный пароль по умолчанию: photo-sorter
 echo Пароль загрузки по умолчанию: upload-photo-sorter
 echo.
