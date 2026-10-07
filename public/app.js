@@ -1,12 +1,4 @@
 (() => {
-  const qs = new URLSearchParams(location.search);
-  if (qs.get('token')) {
-    localStorage.setItem('photoSorterToken', qs.get('token'));
-    qs.delete('token');
-    history.replaceState({}, '', `${location.pathname}${qs.toString() ? `?${qs}` : ''}${location.hash}`);
-  }
-
-  const token = localStorage.getItem('photoSorterToken') || '';
   let sessionId = sessionStorage.getItem('photoSorterSessionId');
   if (!sessionId) {
     sessionId = globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -15,14 +7,17 @@
 
   const $ = id => document.getElementById(id);
   const els = {
+    loginScreen:$('loginScreen'), loginForm:$('loginForm'), loginUsername:$('loginUsername'), loginPassword:$('loginPassword'), loginBtn:$('loginBtn'), loginError:$('loginError'),
     setupScreen:$('setupScreen'), workspace:$('workspace'), workspaceActions:$('workspaceActions'), projectLabel:$('projectLabel'), activeSessions:$('activeSessions'),
-    setupPath:$('setupPath'), setupBtn:$('setupBtn'), syncBtn:$('syncBtn'), undoBtn:$('undoBtn'),
+    setupPath:$('setupPath'), setupBtn:$('setupBtn'), syncBtn:$('syncBtn'), undoBtn:$('undoBtn'), uploadBtn:$('uploadBtn'), logoutBtn:$('logoutBtn'),
     viewerBreadcrumb:$('viewerBreadcrumb'), viewerReloadBtn:$('viewerReloadBtn'), viewerCount:$('viewerCount'),
     viewerFolders:$('viewerFolders'), viewerGrid:$('viewerGrid'), viewerEmpty:$('viewerEmpty'),
     previewEmpty:$('previewEmpty'), previewContent:$('previewContent'), previewImageButton:$('previewImageButton'), previewImage:$('previewImage'), previewFileName:$('previewFileName'), previewMeta:$('previewMeta'),
     mode1Selected:$('mode1Selected'), mode1PeopleBtn:$('mode1PeopleBtn'), mode1EquipmentBtn:$('mode1EquipmentBtn'), mode1RawBtn:$('mode1RawBtn'), mode1ReloadBtn:$('mode1ReloadBtn'), mode1Empty:$('mode1Empty'), mode1Groups:$('mode1Groups'),
     mode2Hall:$('mode2Hall'), mode2Selected:$('mode2Selected'), mode2ResetBtn:$('mode2ResetBtn'), mode2ReloadBtn:$('mode2ReloadBtn'), personAddInput:$('personAddInput'), peopleList:$('peopleList'), mode2Empty:$('mode2Empty'), mode2Grid:$('mode2Grid'),
-    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'), toast:$('toast'),
+    contextMenu:$('contextMenu'), contextResetBtn:$('contextResetBtn'), imageModal:$('imageModal'), modalImage:$('modalImage'), modalFileName:$('modalFileName'), modalCloseBtn:$('modalCloseBtn'),
+    uploadModal:$('uploadModal'), uploadCloseBtn:$('uploadCloseBtn'), uploadCancelBtn:$('uploadCancelBtn'), uploadPasswordInput:$('uploadPasswordInput'), uploadFolderInput:$('uploadFolderInput'), uploadSummary:$('uploadSummary'), uploadProgress:$('uploadProgress'), uploadProgressText:$('uploadProgressText'), uploadStartBtn:$('uploadStartBtn'),
+    toast:$('toast'),
   };
 
   const state = {
@@ -40,21 +35,34 @@
     return '';
   }
 
+  function showLogin(show) {
+    els.loginScreen.classList.toggle('hidden', !show);
+    if (show) {
+      els.setupScreen.classList.add('hidden');
+      els.workspace.classList.add('hidden');
+      els.workspaceActions.classList.add('hidden');
+      els.projectLabel.textContent = 'Требуется вход';
+      setTimeout(() => els.loginUsername.focus(), 0);
+    }
+  }
+
   async function api(url, options = {}) {
     const headers = {
       ...(options.headers || {}),
-      'x-access-token':token,
       'x-session-id':sessionId,
       'x-client-mode':activeTab(),
       'x-client-hall':currentHallForPresence(),
     };
-    if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { ...options, headers });
+    const isBinary = options.body instanceof Blob || options.body instanceof ArrayBuffer || ArrayBuffer.isView(options.body);
+    if (options.body && !(options.body instanceof FormData) && !isBinary && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+    const res = await fetch(url, { ...options, headers, credentials:'same-origin' });
     const type = res.headers.get('content-type') || '';
     const data = type.includes('application/json') ? await res.json() : await res.text();
     if (!res.ok) {
+      if (res.status === 401) showLogin(true);
       const err = new Error(data?.error || data || `HTTP ${res.status}`);
       err.status = res.status;
+      if (data?.expectedOffset != null) err.expectedOffset = Number(data.expectedOffset);
       throw err;
     }
     return data;
@@ -63,9 +71,9 @@
   function assetUrl(kind, photo) {
     if (photo?.id) {
       const rev = photo.contentRevision ? `&rev=${encodeURIComponent(photo.contentRevision)}` : '';
-      return `/api/${kind}?id=${encodeURIComponent(photo.id)}${rev}&token=${encodeURIComponent(token)}`;
+      return `/api/${kind}?id=${encodeURIComponent(photo.id)}${rev}`;
     }
-    return `/api/${kind}?path=${encodeURIComponent(photo?.relativePath || '')}&token=${encodeURIComponent(token)}`;
+    return `/api/${kind}?path=${encodeURIComponent(photo?.relativePath || '')}`;
   }
   const imageUrl = photo => assetUrl('image', photo);
   const previewUrl = photo => assetUrl('preview', photo);
@@ -155,7 +163,9 @@
   async function setupRoot() {
     const value = els.setupPath.value.trim();
     if (!value) throw new Error('Укажите корень проекта');
-    const data = await api('/api/setup/root', { method:'POST', body:JSON.stringify({ path:value }) });
+    const uploadPassword = prompt('Введите отдельный пароль загрузки / администратора');
+    if (!uploadPassword) return;
+    const data = await api('/api/setup/root', { method:'POST', body:JSON.stringify({ path:value, uploadPassword }) });
     state.root = data.root;
     state.halls = data.halls || [];
     els.projectLabel.textContent = data.root;
@@ -558,8 +568,157 @@
     }
   });
 
+  async function login() {
+    els.loginError.classList.add('hidden');
+    els.loginBtn.disabled = true;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method:'POST',
+        credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ username:els.loginUsername.value.trim(), password:els.loginPassword.value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ошибка входа');
+      els.loginPassword.value = '';
+      showLogin(false);
+      await loadProject();
+    } catch (err) {
+      els.loginError.textContent = err.message;
+      els.loginError.classList.remove('hidden');
+    } finally {
+      els.loginBtn.disabled = false;
+    }
+  }
+
+  async function logout() {
+    try { await fetch('/api/auth/logout', { method:'POST', credentials:'same-origin' }); } catch (_) {}
+    closeUpload();
+    showLogin(true);
+  }
+
+  function openUpload() {
+    els.uploadPasswordInput.value = '';
+    els.uploadFolderInput.value = '';
+    els.uploadSummary.textContent = 'Папка не выбрана';
+    els.uploadProgress.value = 0;
+    els.uploadProgressText.textContent = '';
+    els.uploadStartBtn.disabled = false;
+    els.uploadModal.classList.remove('hidden');
+    els.uploadModal.setAttribute('aria-hidden','false');
+    setTimeout(()=>els.uploadPasswordInput.focus(),0);
+  }
+
+  function closeUpload() {
+    if (els.uploadStartBtn.dataset.busy === '1') return;
+    els.uploadModal.classList.add('hidden');
+    els.uploadModal.setAttribute('aria-hidden','true');
+  }
+
+  function humanUploadBytes(bytes) {
+    const units=['Б','КБ','МБ','ГБ']; let value=Number(bytes||0),i=0;
+    while(value>=1024&&i<units.length-1){value/=1024;i++;}
+    return `${value.toFixed(i?1:0)} ${units[i]}`;
+  }
+
+  function selectedUploadFiles() {
+    const files=[...els.uploadFolderInput.files];
+    if(!files.length)throw new Error('Выберите корневую папку проекта');
+    const supported=/\.(jpe?g|png|webp|heic)$/i;
+    const usable=files.filter(file=>supported.test(file.name)&&!/_thumb(?:\s*\(\d+\))?/i.test(file.name));
+    if(!usable.length)throw new Error('В выбранной папке нет поддерживаемых фотографий');
+    const roots=new Set(usable.map(file=>(file.webkitRelativePath||file.name).replace(/\\/g,'/').split('/').filter(Boolean)[0]));
+    if(roots.size!==1)throw new Error('Не удалось определить единую корневую папку');
+    const rootName=[...roots][0];
+    return usable.map(file=>{
+      const raw=(file.webkitRelativePath||file.name).replace(/\\/g,'/');
+      const parts=raw.split('/').filter(Boolean);
+      if(parts[0]===rootName)parts.shift();
+      if(parts.length<2)throw new Error('Выберите папку проекта, а не отдельный зал');
+      if(['raw','Люди','Оборудование'].includes(parts[0]))throw new Error('Выберите корневую папку проекта, внутри которой находятся залы');
+      return { file, relativePath:parts.join('/') };
+    });
+  }
+
+  async function adminFetch(url, options, password) {
+    return api(url, { ...options, headers:{ ...(options?.headers||{}), 'x-upload-password':password } });
+  }
+
+  async function startUpload() {
+    const password=els.uploadPasswordInput.value;
+    if(!password)throw new Error('Введите пароль загрузки');
+    const entries=selectedUploadFiles();
+    const verify=await adminFetch('/api/admin/upload/verify',{method:'POST',body:JSON.stringify({})},password);
+    const chunkSize=Math.min(Number(verify.maxChunkBytes||8*1024*1024),8*1024*1024);
+    const totalBytes=entries.reduce((sum,item)=>sum+item.file.size,0);
+    let doneBytes=0;
+    let doneFiles=0;
+    els.uploadStartBtn.disabled=true;els.uploadStartBtn.dataset.busy='1';els.uploadFolderInput.disabled=true;els.uploadPasswordInput.disabled=true;
+    const update=()=>{
+      const pct=totalBytes?Math.min(100,doneBytes/totalBytes*100):0;
+      els.uploadProgress.value=pct;
+      els.uploadProgressText.textContent=`${doneFiles}/${entries.length} файлов · ${humanUploadBytes(doneBytes)} / ${humanUploadBytes(totalBytes)} · ${pct.toFixed(1)}%`;
+    };
+    update();
+    try {
+      for(const entry of entries){
+        const encoded=encodeURIComponent(entry.relativePath);
+        let status=await adminFetch(`/api/admin/upload/status?path=${encoded}&total=${entry.file.size}`,{method:'GET'},password);
+        if(status.conflict)throw new Error(`Файл уже существует с другим размером: ${entry.relativePath}`);
+        let offset=Number(status.received||0);
+        doneBytes+=offset;
+        if(status.complete){doneFiles++;update();continue;}
+        while(offset<entry.file.size){
+          const end=Math.min(entry.file.size,offset+chunkSize);
+          const blob=entry.file.slice(offset,end);
+          try {
+            const result=await adminFetch(`/api/admin/upload/chunk?path=${encoded}&total=${entry.file.size}&offset=${offset}`,{method:'PUT',body:blob},password);
+            const next=Number(result.received);
+            doneBytes+=Math.max(0,next-offset);offset=next;update();
+          } catch(err) {
+            if(err.status===409&&Number.isFinite(err.expectedOffset)){
+              const next=err.expectedOffset;
+              doneBytes+=Math.max(0,next-offset);offset=next;update();continue;
+            }
+            throw err;
+          }
+        }
+        doneFiles++;update();
+      }
+      els.uploadProgressText.textContent='Индексирую загруженные фотографии…';
+      const finish=await adminFetch('/api/admin/upload/finish',{method:'POST',body:JSON.stringify({})},password);
+      state.viewer.loaded=false;state.mode1.loaded=false;state.mode2.loaded=false;
+      await loadProject();
+      toast(`Загрузка завершена: ${finish.photos} фото в базе`);
+      delete els.uploadStartBtn.dataset.busy;
+      closeUpload();
+    } finally {
+      els.uploadStartBtn.disabled=false;els.uploadFolderInput.disabled=false;els.uploadPasswordInput.disabled=false;delete els.uploadStartBtn.dataset.busy;
+    }
+  }
+
+  async function init() {
+    const res=await fetch('/api/auth/status',{credentials:'same-origin'});
+    const data=await res.json();
+    if(!data.authenticated){showLogin(true);return;}
+    showLogin(false);
+    await loadProject();
+  }
+
+  els.loginForm.addEventListener('submit',e=>{e.preventDefault();login();});
+  els.logoutBtn.addEventListener('click',()=>safe(logout));
+  els.uploadBtn.addEventListener('click',openUpload);
+  els.uploadCloseBtn.addEventListener('click',closeUpload);
+  els.uploadCancelBtn.addEventListener('click',closeUpload);
+  els.uploadStartBtn.addEventListener('click',()=>safe(startUpload));
+  els.uploadFolderInput.addEventListener('change',()=>{
+    try { const files=selectedUploadFiles(); const bytes=files.reduce((s,x)=>s+x.file.size,0); els.uploadSummary.textContent=`${files.length} фото · ${humanUploadBytes(bytes)}`; }
+    catch(err){els.uploadSummary.textContent=err.message;}
+  });
+  els.uploadModal.addEventListener('click',e=>{if(e.target===els.uploadModal)closeUpload();});
+
   setTabs();
-  safe(loadProject);
-  setInterval(()=>safe(refreshSessions),15000);
-  setInterval(()=>safe(liveRefresh),5000);
+  safe(init);
+  setInterval(()=>{if(!els.loginScreen.classList.contains('hidden'))return;safe(refreshSessions);},15000);
+  setInterval(()=>{if(!els.loginScreen.classList.contains('hidden'))return;safe(liveRefresh);},5000);
 })();

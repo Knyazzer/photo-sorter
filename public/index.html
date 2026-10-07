@@ -11,26 +11,43 @@
     <header class="topbar">
       <div class="brand-wrap">
         <div class="brand">PHOTO SORTER</div>
-        <div class="sub" id="projectLabel">Загрузка…</div>
+        <div class="sub" id="projectLabel">Вход…</div>
       </div>
-      <div class="header-actions" id="workspaceActions">
+      <div class="header-actions hidden" id="workspaceActions">
         <div id="activeSessions" class="active-sessions" title="Активные сессии"></div>
+        <button class="ghost" id="uploadBtn">↑ Загрузить фото</button>
         <button class="ghost" id="syncBtn">↻ Синхронизировать</button>
         <button class="ghost" id="undoBtn">↶ Отменить</button>
+        <button class="ghost" id="logoutBtn">Выйти</button>
       </div>
     </header>
 
     <main>
+      <section id="loginScreen" class="screen">
+        <div class="panel login-panel">
+          <h1>Вход в Photo Sorter</h1>
+          <p class="muted">Используйте общий логин и пароль команды.</p>
+          <form id="loginForm" class="login-form">
+            <label for="loginUsername">Логин</label>
+            <input id="loginUsername" autocomplete="username" required />
+            <label for="loginPassword">Пароль</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" required />
+            <button class="primary" type="submit" id="loginBtn">Войти</button>
+            <div id="loginError" class="login-error hidden"></div>
+          </form>
+        </div>
+      </section>
+
       <section id="setupScreen" class="screen hidden">
         <div class="panel setup-panel">
           <h1>Первичная настройка</h1>
-          <p>Укажите один постоянный корень проекта. После настройки приложение будет открываться сразу в файловом браузере.</p>
+          <p>Укажите один постоянный корень проекта. На VDS он задаётся переменной <code>PHOTO_SORTER_ROOT</code> и этот экран не потребуется.</p>
           <label for="setupPath">Корень проекта</label>
           <div class="setup-row">
             <input id="setupPath" placeholder="C:\Фото\ФОТО РОЗ" autocomplete="off" />
             <button class="primary" id="setupBtn">Использовать эту папку</button>
           </div>
-          <p class="muted">Корень также можно задать переменной окружения <code>PHOTO_SORTER_ROOT</code>.</p>
+          <p class="muted">Для изменения корня потребуется отдельный пароль загрузки.</p>
         </div>
       </section>
 
@@ -122,6 +139,29 @@
       <div class="modal-inner">
         <img id="modalImage" alt="Просмотр фото" />
         <div id="modalFileName" class="modal-file-name"></div>
+      </div>
+    </div>
+
+    <div id="uploadModal" class="dialog-backdrop hidden" aria-hidden="true">
+      <div class="dialog-card upload-dialog">
+        <div class="dialog-head">
+          <div>
+            <h2>Загрузка фотографий</h2>
+            <p class="muted">Выберите корневую папку проекта, внутри которой находятся папки залов. Файлы, лежащие прямо в папке зала, автоматически попадут в <code>raw</code>.</p>
+          </div>
+          <button class="dialog-close" id="uploadCloseBtn" title="Закрыть">×</button>
+        </div>
+        <label for="uploadPasswordInput">Отдельный пароль загрузки</label>
+        <input id="uploadPasswordInput" type="password" autocomplete="off" placeholder="Пароль загрузки" />
+        <label for="uploadFolderInput">Папка проекта</label>
+        <input id="uploadFolderInput" type="file" webkitdirectory directory multiple />
+        <div class="upload-summary" id="uploadSummary">Папка не выбрана</div>
+        <progress id="uploadProgress" max="100" value="0"></progress>
+        <div class="upload-progress-text" id="uploadProgressText"></div>
+        <div class="dialog-actions">
+          <button id="uploadCancelBtn" type="button">Закрыть</button>
+          <button id="uploadStartBtn" class="primary" type="button">Начать загрузку</button>
+        </div>
       </div>
     </div>
 

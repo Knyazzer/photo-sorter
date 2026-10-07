@@ -1,0 +1,12 @@
+.git
+.github
+.env
+node_modules
+runtime
+storage
+uploads
+data/photo-sorter.sqlite*
+data/thumb-cache
+*.log
+*.zip
+*.rar

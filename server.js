@@ -6,6 +6,8 @@ const os = require('os');
 const store = require('./lib/photo-store');
 const state = require('./lib/state-store');
 const service = require('./lib/photo-service');
+const auth = require('./lib/auth');
+const upload = require('./lib/upload-service');
 const { ensureThumbnail } = require('./lib/thumbnail-cache');
 const {
   safeExistingPath,
@@ -18,40 +20,87 @@ const { isImageFile, isThumbnail } = require('./lib/photo-name');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-let ACCESS_TOKEN = null;
+const JSON_LIMIT = 2 * 1024 * 1024;
+const LOGIN_WINDOW_MS = 60_000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map();
 
-function sendJson(res, status, data) {
+function securityHeaders(extra = {}) {
+  return {
+    'X-Content-Type-Options':'nosniff',
+    'X-Frame-Options':'DENY',
+    'Referrer-Policy':'same-origin',
+    'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
+    ...extra,
+  };
+}
+
+function sendJson(res, status, data, headers = {}) {
   const body = Buffer.from(JSON.stringify(data));
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-  });
+  res.writeHead(status, securityHeaders({
+    'Content-Type':'application/json; charset=utf-8',
+    'Content-Length':body.length,
+    'Cache-Control':'no-store',
+    ...headers,
+  }));
   res.end(body);
 }
 
-function sendText(res, status, body, contentType = 'text/plain; charset=utf-8') {
+function sendText(res, status, body, contentType = 'text/plain; charset=utf-8', headers = {}) {
   const buf = Buffer.from(body);
-  res.writeHead(status, { 'Content-Type': contentType, 'Content-Length': buf.length, 'X-Content-Type-Options':'nosniff' });
+  res.writeHead(status, securityHeaders({ 'Content-Type':contentType, 'Content-Length':buf.length, ...headers }));
   res.end(buf);
 }
 
-async function readJsonBody(req) {
+function httpError(message, statusCode = 400) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+}
+
+async function readBody(req, maxBytes = JSON_LIMIT) {
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > 2 * 1024 * 1024) throw new Error('Слишком большой запрос');
+    if (total > maxBytes) throw httpError('Слишком большой запрос', 413);
     chunks.push(chunk);
   }
-  if (!chunks.length) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch (_) { throw new Error('Некорректный JSON'); }
+  return Buffer.concat(chunks);
 }
 
-function tokenFrom(req, url, body) {
-  return req.headers['x-access-token'] || url.searchParams.get('token') || body?.token || '';
+async function readJsonBody(req) {
+  const buffer = await readBody(req, JSON_LIMIT);
+  if (!buffer.length) return {};
+  try { return JSON.parse(buffer.toString('utf8')); }
+  catch (_) { throw httpError('Некорректный JSON'); }
+}
+
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket.remoteAddress || 'unknown';
+}
+
+function loginAllowed(req) {
+  const key = clientIp(req);
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  if (!current || now - current.startedAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { startedAt:now, count:0 });
+    return true;
+  }
+  return current.count < LOGIN_MAX_ATTEMPTS;
+}
+
+function noteLoginFailure(req) {
+  const key = clientIp(req);
+  const current = loginAttempts.get(key) || { startedAt:Date.now(), count:0 };
+  current.count += 1;
+  loginAttempts.set(key, current);
+}
+
+function clearLoginFailures(req) {
+  loginAttempts.delete(clientIp(req));
 }
 
 function sessionIdFrom(req) {
@@ -67,6 +116,20 @@ function touchClientSession(req) {
     store.touchSession(sessionId, { mode, hall });
   }
   return sessionId;
+}
+
+function requireAuth(req) {
+  const session = auth.sessionFromRequest(req);
+  if (!session) throw httpError('Требуется вход', 401);
+  return session;
+}
+
+function uploadPasswordFrom(req, body = null) {
+  return String(req.headers['x-upload-password'] || body?.uploadPassword || '');
+}
+
+function requireUploadPassword(req, body = null) {
+  if (!auth.uploadPasswordValid(uploadPasswordFrom(req, body))) throw httpError('Неверный пароль загрузки', 403);
 }
 
 async function requireRoot() {
@@ -99,12 +162,11 @@ function mimeType(filePath) {
 async function streamFile(res, filePath, cache = false) {
   const stat = await fsp.stat(filePath);
   if (!stat.isFile()) throw new Error('Файл не найден');
-  res.writeHead(200, {
-    'Content-Type': mimeType(filePath),
-    'Content-Length': stat.size,
-    'Cache-Control': cache ? 'private, max-age=300' : 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-  });
+  res.writeHead(200, securityHeaders({
+    'Content-Type':mimeType(filePath),
+    'Content-Length':stat.size,
+    'Cache-Control':cache ? 'private, max-age=300' : 'no-store',
+  }));
   const stream = fs.createReadStream(filePath);
   stream.on('error', err => { if (!res.headersSent) sendJson(res, 500, { error:err.message }); else res.destroy(err); });
   stream.pipe(res);
@@ -117,8 +179,14 @@ async function serveStatic(url, res) {
   const target = path.resolve(PUBLIC_DIR, `.${relative}`);
   const rel = path.relative(PUBLIC_DIR, target);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
-  try { await streamFile(res, target, true); return true; }
-  catch (err) { if (err.code === 'ENOENT') return false; throw err; }
+  try {
+    const cache = relative !== '/index.html';
+    await streamFile(res, target, cache);
+    return true;
+  } catch (err) {
+    if (err.code === 'ENOENT') return false;
+    throw err;
+  }
 }
 
 function parseIds(body) {
@@ -126,14 +194,38 @@ function parseIds(body) {
   return [...new Set(raw.map(String).filter(Boolean))];
 }
 
+async function authRoute(req, res, route, body) {
+  if (route === '/api/auth/status' && req.method === 'GET') {
+    const session = auth.sessionFromRequest(req);
+    return sendJson(res, 200, { authenticated:Boolean(session), username:session?.username || null, expiresAt:session?.expiresAt || null });
+  }
+  if (route === '/api/auth/login' && req.method === 'POST') {
+    if (!loginAllowed(req)) return sendJson(res, 429, { error:'Слишком много попыток входа. Повторите через минуту.' });
+    if (!auth.credentialsValid(body.username, body.password)) {
+      noteLoginFailure(req);
+      return sendJson(res, 401, { error:'Неверный логин или пароль' });
+    }
+    clearLoginFailures(req);
+    return sendJson(res, 200, { ok:true, username:auth.USERNAME }, { 'Set-Cookie':auth.issueSessionCookie(auth.USERNAME) });
+  }
+  if (route === '/api/auth/logout' && req.method === 'POST') {
+    return sendJson(res, 200, { ok:true }, { 'Set-Cookie':auth.clearSessionCookie() });
+  }
+  return false;
+}
+
 async function apiRoute(req, res, url, body) {
-  if (tokenFrom(req, url, body) !== ACCESS_TOKEN) return sendJson(res, 401, { error:'Неверный ключ доступа' });
   const method = req.method || 'GET';
   const route = url.pathname;
+
+  const authHandled = await authRoute(req, res, route, body || {});
+  if (authHandled !== false) return authHandled;
+
+  requireAuth(req);
   const sessionId = touchClientSession(req);
 
   if (method === 'GET' && route === '/api/system') {
-    return sendJson(res, 200, { hostname:os.hostname(), port:PORT, platform:process.platform, node:process.version, networkUrls:networkAddresses(PORT, ACCESS_TOKEN) });
+    return sendJson(res, 200, { hostname:os.hostname(), port:PORT, platform:process.platform, node:process.version, networkUrls:networkAddresses(PORT) });
   }
 
   if (method === 'POST' && route === '/api/session') {
@@ -153,6 +245,8 @@ async function apiRoute(req, res, url, body) {
   }
 
   if (method === 'POST' && route === '/api/setup/root') {
+    requireUploadPassword(req, body);
+    if (process.env.PHOTO_SORTER_ROOT) throw httpError('Корень задан сервером и не может быть изменён через интерфейс', 409);
     const requested = path.resolve(String(body.path || '').trim());
     if (!body.path) throw new Error('Не указан путь к проекту');
     const stat = await fsp.stat(requested);
@@ -240,7 +334,7 @@ async function apiRoute(req, res, url, body) {
   }
   if (personMatch && method === 'DELETE') {
     const root = await requireRoot();
-    const result = await service.deletePerson(root, Number(personMatch[1]), Boolean(body.confirm));
+    const result = await service.deletePerson(root, Number(personMatch[1]), Boolean(body.confirm), sessionId);
     return sendJson(res, 200, result);
   }
 
@@ -261,14 +355,47 @@ async function apiRoute(req, res, url, body) {
     return sendJson(res, 200, await service.undoLast(root, sessionId));
   }
 
+  if (method === 'POST' && route === '/api/admin/upload/verify') {
+    requireUploadPassword(req, body);
+    return sendJson(res, 200, { ok:true, maxChunkBytes:upload.MAX_CHUNK_BYTES, maxFileBytes:upload.MAX_FILE_BYTES });
+  }
+
+  if (method === 'GET' && route === '/api/admin/upload/status') {
+    requireUploadPassword(req);
+    const root = await requireRoot();
+    return sendJson(res, 200, await upload.uploadStatus(root, url.searchParams.get('path'), Number(url.searchParams.get('total'))));
+  }
+
+  if (method === 'PUT' && route === '/api/admin/upload/chunk') {
+    requireUploadPassword(req);
+    const root = await requireRoot();
+    const chunk = await readBody(req, upload.MAX_CHUNK_BYTES);
+    try {
+      const result = await upload.appendChunk(root, url.searchParams.get('path'), Number(url.searchParams.get('total')), Number(url.searchParams.get('offset')), chunk);
+      return sendJson(res, 200, result);
+    } catch (err) {
+      if (err.expectedOffset != null) return sendJson(res, err.statusCode || 409, { error:err.message, expectedOffset:err.expectedOffset });
+      throw err;
+    }
+  }
+
+  if (method === 'POST' && route === '/api/admin/upload/finish') {
+    requireUploadPassword(req, body);
+    const root = await requireRoot();
+    const result = await service.syncFilesystem(root);
+    return sendJson(res, 200, { ok:true, ...result });
+  }
+
   return sendJson(res, 404, { error:'API route not found' });
 }
 
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname === '/health') return sendJson(res, 200, { ok:true });
     if (url.pathname.startsWith('/api/')) {
-      const body = ['POST','PUT','PATCH','DELETE'].includes(req.method) ? await readJsonBody(req) : {};
+      const isRawUpload = req.method === 'PUT' && url.pathname === '/api/admin/upload/chunk';
+      const body = !isRawUpload && ['POST','PUT','PATCH','DELETE'].includes(req.method) ? await readJsonBody(req) : {};
       return await apiRoute(req, res, url, body);
     }
     if (await serveStatic(url, res)) return;
@@ -285,31 +412,32 @@ async function bootstrapRoot() {
   if (root) {
     try { if ((await fsp.stat(root)).isDirectory()) return await service.syncFilesystem(root); } catch (_) {}
   }
+
   root = await state.getConfiguredRoot();
   if (root) {
     try {
+      if (process.env.PHOTO_SORTER_ROOT) await fsp.mkdir(root, { recursive:true });
       if ((await fsp.stat(root)).isDirectory()) return await service.initializeRoot(root);
     } catch (err) {
-      console.warn(`Настроенный корень недоступен: ${root}`);
+      console.warn(`Настроенный корень недоступен: ${root}: ${err.message}`);
     }
   }
   return null;
 }
 
 (async () => {
-  ACCESS_TOKEN = await state.getAccessToken();
+  auth.assertConfigured();
   const sync = await bootstrapRoot();
   server.listen(PORT, HOST, () => {
-    const localUrl = `http://localhost:${PORT}/?token=${ACCESS_TOKEN}`;
     console.log('\n==============================================');
     console.log('  PHOTO SORTER запущен');
     console.log('==============================================');
-    console.log(`На этом компьютере: ${localUrl}`);
+    console.log(`Локально: http://localhost:${PORT}/`);
     const root = store.getSelectedRoot();
-    console.log(root ? `Проект: ${root}` : 'Проект не настроен — откройте приложение для первичной настройки.');
+    console.log(root ? `Проект: ${root}` : 'Проект не настроен.');
     if (sync) console.log(`Синхронизация: ${sync.photos} фото, ${sync.halls} залов, отсутствуют: ${sync.missing}`);
-    const urls = networkAddresses(PORT, ACCESS_TOKEN);
-    if (urls.length) { console.log('\nВ локальной сети:'); urls.forEach(item => console.log(`  ${item}`)); }
+    const urls = networkAddresses(PORT);
+    if (urls.length && process.env.NODE_ENV !== 'production') { console.log('\nВ локальной сети:'); urls.forEach(item => console.log(`  ${item}`)); }
     console.log('==============================================\n');
   });
 })().catch(err => { console.error(err); process.exit(1); });

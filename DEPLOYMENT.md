@@ -1,135 +1,232 @@
-# Photo Sorter — схема GitHub + VDS
+# Photo Sorter 2.2 — Docker + Nginx Proxy Manager
 
-## Рекомендуемая схема
-
-GitHub используется для **кода и истории версий приложения**.
-
-Рабочие фотографии после развёртывания находятся на локальном диске VDS:
+Целевая схема для `https://photo-sorter.knzteam.ru`:
 
 ```text
-/srv/photo-sorter/
-├── app/        # git clone репозитория
-├── storage/    # фотографии
-└── cache/      # thumbnails
+Internet
+   │
+   ▼
+Nginx Proxy Manager (80/443 + Let's Encrypt)
+   │ Docker network
+   ▼
+photo-sorter:3000
+   │
+   ├── /storage/photo-sorter   — постоянные фотографии
+   ├── /data                   — SQLite и runtime-конфигурация
+   └── /cache                  — WebP thumbnails
 ```
 
-Пример:
+Контейнер Photo Sorter **не публикует порт на хост**. Nginx Proxy Manager обращается к нему по общей Docker-сети.
+
+## 1. DNS
+
+Создайте DNS-запись:
 
 ```text
-/srv/photo-sorter/storage/
+photo-sorter.knzteam.ru → IP вашего VDS
+```
+
+## 2. Клонирование
+
+```bash
+git clone <URL_ВАШЕГО_REPOSITORY>
+cd <ПАПКА_REPOSITORY>
+```
+
+## 3. Узнать Docker-сеть Nginx Proxy Manager
+
+```bash
+docker network ls
+```
+
+Обычно она выглядит примерно так:
+
+```text
+nginx-proxy-manager_default
+npm_default
+```
+
+Нужна сеть, к которой уже подключён контейнер Nginx Proxy Manager.
+
+## 4. Создать `.env`
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Обязательно поменяйте:
+
+```dotenv
+PHOTO_SORTER_USERNAME=team
+PHOTO_SORTER_PASSWORD=ДЛИННЫЙ_ОБЩИЙ_ПАРОЛЬ
+PHOTO_SORTER_UPLOAD_PASSWORD=ДРУГОЙ_ПАРОЛЬ_ТОЛЬКО_ДЛЯ_ЗАГРУЗКИ
+PHOTO_SORTER_SESSION_SECRET=СЛУЧАЙНАЯ_СТРОКА_МИНИМУМ_32_СИМВОЛА
+NPM_NETWORK=ИМЯ_СЕТИ_NPM
+```
+
+Секрет для сессий удобно получить так:
+
+```bash
+openssl rand -hex 32
+```
+
+`.env` находится в `.gitignore` и не должен попадать в GitHub.
+
+## 5. Создать постоянные каталоги
+
+```bash
+mkdir -p storage runtime/data runtime/cache
+```
+
+На обычном Ubuntu-пользователе с UID 1000 дополнительных прав обычно не требуется. Если контейнер сообщает `EACCES`:
+
+```bash
+sudo chown -R 1000:1000 storage runtime
+```
+
+Фотографии остаются в `./storage`, SQLite — в `./runtime/data`, thumbnails — в `./runtime/cache`. Пересборка или удаление контейнера их не удаляет.
+
+## 6. Запустить
+
+```bash
+docker compose up -d --build
+```
+
+Проверить:
+
+```bash
+docker compose ps
+docker compose logs -f photo-sorter
+```
+
+В `docker compose ps` сервис должен перейти в состояние `healthy`.
+
+## 7. Nginx Proxy Manager
+
+Создайте **Proxy Host**:
+
+```text
+Domain Names:       photo-sorter.knzteam.ru
+Scheme:             http
+Forward Hostname:   photo-sorter
+Forward Port:       3000
+```
+
+Включите:
+
+- Block Common Exploits;
+- Websockets Support можно оставить включённым, хотя текущая версия использует HTTP polling;
+- SSL Certificate → Request a new SSL Certificate;
+- Force SSL;
+- HTTP/2 Support.
+
+### Advanced
+
+Добавьте:
+
+```nginx
+client_max_body_size 16m;
+proxy_request_buffering off;
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+```
+
+Photo Sorter отправляет фотографии chunk'ами максимум по 8 MiB, поэтому лимит 16 MiB достаточен. Весь массив 1.19 ГБ никогда не идёт одним HTTP-запросом.
+
+## 8. Первый вход
+
+Откройте:
+
+```text
+https://photo-sorter.knzteam.ru
+```
+
+Введите общий логин и пароль из:
+
+```text
+PHOTO_SORTER_USERNAME
+PHOTO_SORTER_PASSWORD
+```
+
+Несколько сотрудников могут использовать один общий аккаунт. Каждый браузер получает отдельный `session_id`, поэтому присутствие, Undo и контроль конфликтов остаются независимыми.
+
+## 9. Загрузка фотографий через интерфейс
+
+Нажмите:
+
+```text
+↑ Загрузить фото
+```
+
+Введите отдельный:
+
+```text
+PHOTO_SORTER_UPLOAD_PASSWORD
+```
+
+и выберите **корневую папку проекта**, внутри которой находятся папки залов.
+
+Поддерживается структура:
+
+```text
+Проект/
 ├── Арма/
 │   ├── raw/
 │   ├── Люди/
 │   └── Оборудование/
+├── Гагарин/
 └── ...
 ```
 
-Это позволяет физическим перемещениям файлов выполняться локально на сервере и не превращает Git в файловое хранилище.
-
-## Первичная доставка архива фотографий (~1.19 ГБ)
-
-Для первого развёртывания удобно создать GitHub Release и прикрепить один ZIP/TAR-архив фотографий как release asset.
-
-Архив фотографий не нужно коммитить в обычную Git-историю приложения.
-
-На VDS:
-
-```bash
-sudo mkdir -p /srv/photo-sorter/{app,storage,cache}
-```
-
-Затем скачать release asset и распаковать его содержимое в:
+Также поддерживается старый входной формат:
 
 ```text
-/srv/photo-sorter/storage/
+Проект/Арма/photo_123.jpg
 ```
 
-После запуска Photo Sorter выполнить «Синхронизировать» или указать `PHOTO_SORTER_ROOT` до запуска — приложение само проиндексирует фактические файлы в SQLite.
+При загрузке такой файл автоматически записывается как:
 
-## Установка приложения на VDS
-
-```bash
-cd /srv/photo-sorter
-git clone <REPOSITORY_URL> app
-cd app
-npm install --omit=dev
+```text
+Арма/raw/photo_123.jpg
 ```
 
-Переменные окружения:
+Загрузка resumable: сервер хранит `.upload-part`, сообщает уже принятый offset и продолжает с него. После завершения всех файлов автоматически выполняется `БД ↔ файловая система` sync.
+
+Если файл с тем же именем уже существует и имеет другой размер, Photo Sorter останавливает загрузку этого файла с конфликтом вместо перезаписи.
+
+## 10. Обновление приложения вручную
+
+Автодеплой не требуется. Для новой версии:
 
 ```bash
-PHOTO_SORTER_ROOT=/srv/photo-sorter/storage
-PHOTO_SORTER_CACHE=/srv/photo-sorter/cache
-PORT=3000
-```
-
-Запуск:
-
-```bash
-npm start
-```
-
-Для production следует запускать приложение через systemd/PM2 и поставить перед ним Nginx/Caddy с HTTPS.
-
-## Обновления приложения
-
-Фотографии и Git-репозиторий независимы:
-
-```bash
-cd /srv/photo-sorter/app
+cd <ПАПКА_REPOSITORY>
 git pull
-npm install --omit=dev
-# restart service
+docker compose up -d --build
 ```
 
-Обновление кода не затрагивает `/srv/photo-sorter/storage`.
+`storage/` и `runtime/` остаются на месте.
 
-## Многосессионная модель
+## 11. Резервная копия
 
-Уже сейчас браузер создаёт отдельный `session_id` для каждой вкладки/рабочей сессии.
-
-Сервер хранит:
-
-- активную сессию;
-- режим работы;
-- выбранный зал;
-- время последней активности;
-- операции Undo по session_id.
-
-Фотография имеет поле `version`. Изменяющая операция отправляет ожидаемую версию фотографии. Если другой клиент уже изменил эту фотографию, сервер отвечает конфликтом вместо молчаливой перезаписи.
-
-Это позволяет позже оставить один общий логин/пароль для сотрудников, но внутри различать независимые рабочие сессии.
-
-## Будущая авторизация
-
-Планируемая схема:
+Минимально нужно резервировать:
 
 ```text
-Общий пользовательский пароль
-        ↓
-отдельная browser session каждому клиенту
-        ↓
-совместная сортировка
+storage/
+runtime/data/
 ```
 
-Отдельно:
+`runtime/cache/` можно не резервировать — thumbnails создаются заново.
+
+## 12. Что не хранится в GitHub
+
+Не коммитить:
 
 ```text
-Admin password
-        ↓
-загрузка проекта
-sync / диагностика
-backup
+.env
+storage/
+runtime/
+data/photo-sorter.sqlite*
 ```
 
-Административная загрузка больших архивов через браузер должна использовать chunked/resumable upload и добавляется на этапе VDS.
-
-## Thumbnail cache
-
-Сетка использует `/api/preview?id=<photo_id>`.
-
-При установленном `sharp` сервер создаёт небольшие WebP-превью и сохраняет их в `PHOTO_SORTER_CACHE` (или `data/thumb-cache` локально).
-
-Большой оригинал загружается только через `/api/image?id=<photo_id>` при открытии фотографии.
-
-Путь фотографии может меняться сколько угодно — URL preview остаётся привязан к стабильному `photo_id`, поэтому перенос файла больше не должен вызывать повторную загрузку оригинала.
+GitHub хранит только код приложения и документацию. Рабочие фотографии находятся на диске VDS.

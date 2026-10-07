@@ -1,16 +1,28 @@
 # Changelog
 
-## 2.1.0 — 2026-10-07
+## 2.2.0 — Docker/VDS + authentication + resumable upload
+
+- добавлен общий login/password для Photo Sorter;
+- авторизация переведена с access token в URL на подписанную `HttpOnly` cookie;
+- добавлен отдельный `PHOTO_SORTER_UPLOAD_PASSWORD`;
+- upload password не сохраняется в браузерном persistent storage;
+- добавлена resumable folder upload: chunk upload + offset recovery;
+- старый формат `Зал/photo.jpg` при импорте автоматически направляется в `Зал/raw/photo.jpg`;
+- добавлена защита от перезаписи уже существующего файла другого размера;
+- добавлен Dockerfile и `docker-compose.yml`;
+- фотографии, SQLite и thumbnail cache вынесены в отдельные persistent volumes;
+- контейнер рассчитан на подключение напрямую к Docker-сети Nginx Proxy Manager без публичного порта;
+- добавлен `/health` для Docker healthcheck;
+- runtime пути БД и cache теперь задаются environment variables;
+- удалён старый access-token механизм;
+- подготовлен deployment для `photo-sorter.knzteam.ru`.
+
+## 2.1.0
 
 - удаление ФИО возвращает фотографии в корень `Зал/Люди`, а не в `raw`;
-- preview/image URL привязаны к стабильному `photo_id`, а не к текущему пути файла;
-- добавлен ленивый WebP thumbnail-cache через `sharp`;
-- после массовой классификации фотосетка больше не пересоздаётся целиком;
-- карточки обновляются точечно и показывают pending-состояние во время операции;
-- добавлены независимые browser `session_id`;
-- Undo привязан к сессии;
-- добавлено поле `photos.version` и optimistic concurrency с HTTP 409 при stale update;
-- добавлено отображение активных сессий и их режима/зала;
-- добавлена лёгкая live-синхронизация режимов между параллельными браузерами без перезагрузки картинок;
-- добавлена GitHub Actions проверка;
-- добавлена инструкция `DEPLOYMENT.md` для схемы GitHub + VDS.
+- стабильные preview URL по `photo_id`;
+- точечное обновление карточек после сортировки;
+- thumbnail-cache;
+- отдельные browser sessions;
+- version conflict protection;
+- live JSON refresh между сессиями.

@@ -29,6 +29,9 @@ if not exist "node_modules\sharp\package.json" (
   )
 )
 cls
-echo Запуск Photo Sorter 2.1...
+echo Запуск Photo Sorter 2.2...
+echo Локальный вход по умолчанию: photo / photo-sorter
+echo Пароль загрузки по умолчанию: upload-photo-sorter
+echo.
 node server.js
 pause

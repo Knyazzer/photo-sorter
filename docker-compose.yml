@@ -1,0 +1,41 @@
+services:
+  photo-sorter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: photo-sorter
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      PHOTO_SORTER_ROOT: /storage/photo-sorter
+      PHOTO_SORTER_DATA: /data
+      PHOTO_SORTER_CACHE: /cache
+      PHOTO_SORTER_USERNAME: ${PHOTO_SORTER_USERNAME:?Set PHOTO_SORTER_USERNAME in .env}
+      PHOTO_SORTER_PASSWORD: ${PHOTO_SORTER_PASSWORD:?Set PHOTO_SORTER_PASSWORD in .env}
+      PHOTO_SORTER_UPLOAD_PASSWORD: ${PHOTO_SORTER_UPLOAD_PASSWORD:?Set PHOTO_SORTER_UPLOAD_PASSWORD in .env}
+      PHOTO_SORTER_SESSION_SECRET: ${PHOTO_SORTER_SESSION_SECRET:?Set PHOTO_SORTER_SESSION_SECRET in .env}
+      PHOTO_SORTER_COOKIE_SECURE: ${PHOTO_SORTER_COOKIE_SECURE:-1}
+      PHOTO_SORTER_SESSION_HOURS: ${PHOTO_SORTER_SESSION_HOURS:-168}
+      PHOTO_SORTER_MAX_UPLOAD_CHUNK_BYTES: ${PHOTO_SORTER_MAX_UPLOAD_CHUNK_BYTES:-8388608}
+      PHOTO_SORTER_MAX_UPLOAD_FILE_BYTES: ${PHOTO_SORTER_MAX_UPLOAD_FILE_BYTES:-314572800}
+    volumes:
+      - ${PHOTO_STORAGE_PATH:-./storage}:/storage/photo-sorter
+      - ${PHOTO_DATA_PATH:-./runtime/data}:/data
+      - ${PHOTO_CACHE_PATH:-./runtime/cache}:/cache
+    expose:
+      - "3000"
+    networks:
+      - npm_proxy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+networks:
+  npm_proxy:
+    external: true
+    name: ${NPM_NETWORK:?Set NPM_NETWORK to the Docker network used by Nginx Proxy Manager}
